@@ -1,2 +1,2 @@
 # pokerathome
-Self-hosted online poker for humans and robots
+Self-hostable online poker for humans and robots.
