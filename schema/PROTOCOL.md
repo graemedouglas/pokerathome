@@ -1,11 +1,27 @@
 # Poker@Home WebSocket Protocol
 
-> Bot builder reference. This document describes the full Socket.IO message protocol.
+> Bot builder reference. This document describes the full WebSocket message protocol.
 > For the machine-readable spec, see [`poker-protocol.asyncapi.yaml`](./poker-protocol.asyncapi.yaml).
 
 ## Connection
 
-Connect via Socket.IO to the game server (default: `wss://localhost:3000/socket.io`). All messages are JSON. The first thing you must do after connecting is **identify**.
+Connect via WebSocket to the game server (default: `wss://localhost:3000/ws`). All messages are JSON strings sent over a single WebSocket connection. The first thing you must do after connecting is **identify**.
+
+---
+
+## Message Envelope
+
+Every message — client-to-server and server-to-client — is a JSON object with a uniform shape:
+
+```json
+{
+  "action": "<messageType>",
+  "payload": { ... }
+}
+```
+
+- `action` — string discriminator identifying the message type.
+- `payload` — message-specific data (may be `{}` for signals with no data).
 
 ---
 
@@ -25,29 +41,29 @@ Examples: `Ad` (ace of diamonds), `Tc` (ten of clubs), `6s` (six of spades).
 
 ### Client to Server
 
-| Event         | Payload                                | Description                        |
-| ------------- | -------------------------------------- | ---------------------------------- |
-| `identify`    | `{ displayName, reconnectToken? }`     | Request identity / reconnect       |
-| `listGames`   | `{}`                                   | List available games               |
-| `joinGame`    | `{ gameId }`                           | Join a game room                   |
-| `ready`       | `{}`                                   | Signal readiness to play           |
-| `action`      | `{ handNumber, type, amount? }`        | Submit a game action               |
-| `revealCards` | `{ handNumber }`                       | Voluntarily show hole cards        |
-| `chat`        | `{ message }`                          | Send a chat message                |
-| `leaveGame`   | `{}`                                   | Leave the current game             |
+| `action`        | Payload                                | Description                        |
+| --------------- | -------------------------------------- | ---------------------------------- |
+| `identify`      | `{ displayName, reconnectToken? }`     | Request identity / reconnect       |
+| `listGames`     | `{}`                                   | List available games               |
+| `joinGame`      | `{ gameId }`                           | Join a game room                   |
+| `ready`         | `{}`                                   | Signal readiness to play           |
+| `playerAction`  | `{ handNumber, type, amount? }`        | Submit a game action               |
+| `revealCards`   | `{ handNumber }`                       | Voluntarily show hole cards        |
+| `chat`          | `{ message }`                          | Send a chat message                |
+| `leaveGame`     | `{}`                                   | Leave the current game             |
 
 ### Server to Client
 
-| Event          | Payload                                       | Description                                  |
-| -------------- | --------------------------------------------- | -------------------------------------------- |
-| `identified`   | `{ playerId, reconnectToken, currentGame? }`  | Identity confirmed                           |
-| `gameList`     | `{ games[] }`                                 | Available games                              |
-| `gameJoined`   | `{ gameState }`                               | Joined a game, here's the initial state      |
-| `gameState`    | `{ gameState, event, actionRequest? }`        | **Main message** — every state transition    |
-| `timeWarning`  | `{ remainingMs }`                             | Action timer countdown                       |
-| `gameOver`     | `{ gameId, reason, standings[] }`             | Game concluded                               |
-| `chatMessage`  | `{ playerId, displayName, message, timestamp }` | Chat broadcast                            |
-| `error`        | `{ code, message, details? }`                 | Something went wrong                         |
+| `action`        | Payload                                       | Description                                  |
+| --------------- | --------------------------------------------- | -------------------------------------------- |
+| `identified`    | `{ playerId, reconnectToken, currentGame? }`  | Identity confirmed                           |
+| `gameList`      | `{ games[] }`                                 | Available games                              |
+| `gameJoined`    | `{ gameState }`                               | Joined a game, here's the initial state      |
+| `gameState`     | `{ gameState, event, actionRequest? }`        | **Main message** — every state transition    |
+| `timeWarning`   | `{ remainingMs }`                             | Action timer countdown                       |
+| `gameOver`      | `{ gameId, reason, standings[] }`             | Game concluded                               |
+| `chatMessage`   | `{ playerId, displayName, message, timestamp }` | Chat broadcast                            |
+| `error`         | `{ code, message, details? }`                 | Something went wrong                         |
 
 ---
 
@@ -56,29 +72,46 @@ Examples: `Ad` (ace of diamonds), `Tc` (ten of clubs), `6s` (six of spades).
 ### 1. Identity Flow
 
 ```
-Bot                         Server
- |── identify ──────────────>|     { displayName: "MyBot" }
- |<──────────── identified ──|     { playerId: "uuid", reconnectToken: "tok" }
+Bot                                   Server
+ |                                      |
+ |── { action: "identify",             |
+ |     payload: {                       |
+ |       displayName: "MyBot" }} ──────>|
+ |                                      |
+ |<──── { action: "identified",         |
+ |        payload: {                    |
+ |          playerId: "uuid",           |
+ |          reconnectToken: "tok" }} ───|
 ```
 
-On reconnect (e.g. after a crash), send the `reconnectToken` you received earlier. If you were in a game, the `identified` response will include `currentGame` with the full game state so you can resume.
+On reconnect (e.g. after a crash), include the `reconnectToken` you received earlier. If you were in a game, the `identified` response will include `currentGame` with the full game state so you can resume.
 
 ### 2. Lobby Flow
 
 ```
-Bot                         Server
- |── listGames ─────────────>|
- |<──────────── gameList ────|     { games: [{ gameId, name, stakes, ... }] }
- |── joinGame ──────────────>|     { gameId: "uuid" }
- |<──────────── gameJoined ──|     { gameState: { ... } }
- |── ready ─────────────────>|
+Bot                                   Server
+ |                                      |
+ |── { action: "listGames",            |
+ |     payload: {} } ─────────────────>|
+ |                                      |
+ |<──── { action: "gameList",           |
+ |        payload: { games: [...] }} ──|
+ |                                      |
+ |── { action: "joinGame",             |
+ |     payload: { gameId: "uuid" }} ──>|
+ |                                      |
+ |<──── { action: "gameJoined",         |
+ |        payload: { gameState }} ─────|
+ |                                      |
+ |── { action: "ready",                |
+ |     payload: {} } ─────────────────>|
 ```
 
 After joining and signaling `ready`, the server will begin sending `gameState` messages once the game starts.
 
 ### 3. Game Flow (the core loop)
 
-Every state transition produces a **`gameState`** message containing three fields:
+Every state transition produces a **`gameState`** message. The payload contains three fields:
 
 | Field            | Always present? | Description                                   |
 | ---------------- | --------------- | --------------------------------------------- |
@@ -89,65 +122,74 @@ Every state transition produces a **`gameState`** message containing three field
 Typical hand sequence:
 
 ```
-Server ──> gameState { event: HAND_START }
-Server ──> gameState { event: BLINDS_POSTED }
-Server ──> gameState { event: DEAL, actionRequest: {...} }     ← to active player
-Bot    ──> action { handNumber: 1, type: "CALL" }
-Server ──> gameState { event: PLAYER_ACTION }                  ← broadcast to all
-Server ──> gameState { event: PLAYER_ACTION, actionRequest }   ← next player to act
+Server ──> { action: "gameState", payload: { ..., event: { type: "HAND_START" } } }
+Server ──> { action: "gameState", payload: { ..., event: { type: "BLINDS_POSTED" } } }
+Server ──> { action: "gameState", payload: { ..., event: { type: "DEAL" }, actionRequest: {...} } }
+Bot    ──> { action: "playerAction", payload: { handNumber: 1, type: "CALL" } }
+Server ──> { action: "gameState", payload: { ..., event: { type: "PLAYER_ACTION" } } }
   ... betting continues ...
-Server ──> gameState { event: FLOP }
+Server ──> { action: "gameState", payload: { ..., event: { type: "FLOP" } } }
   ... more betting ...
-Server ──> gameState { event: TURN }
+Server ──> { action: "gameState", payload: { ..., event: { type: "TURN" } } }
   ... more betting ...
-Server ──> gameState { event: RIVER }
+Server ──> { action: "gameState", payload: { ..., event: { type: "RIVER" } } }
   ... final betting ...
-Server ──> gameState { event: SHOWDOWN }
-Server ──> gameState { event: HAND_END }
+Server ──> { action: "gameState", payload: { ..., event: { type: "SHOWDOWN" } } }
+Server ──> { action: "gameState", payload: { ..., event: { type: "HAND_END" } } }
 ```
 
 **Key design property:** Every `gameState` message contains the *complete* snapshot. If your bot crashes and reconnects, the latest `gameState` has everything you need. You do not need to reconstruct state from message history.
 
 ### 4. Action Flow
 
-When `actionRequest` is present in a `gameState` message, you must respond with an `action` event. The server tells you exactly what's legal:
+When `actionRequest` is present in a `gameState` payload, you must respond. The server tells you exactly what's legal:
 
 ```json
 {
-  "availableActions": [
-    { "type": "FOLD" },
-    { "type": "CALL", "amount": 50 },
-    { "type": "RAISE", "min": 100, "max": 1500 },
-    { "type": "ALL_IN", "amount": 1500 }
-  ],
-  "timeToActMs": 30000
+  "action": "gameState",
+  "payload": {
+    "gameState": { "..." : "full snapshot" },
+    "event": { "type": "DEAL" },
+    "actionRequest": {
+      "availableActions": [
+        { "type": "FOLD" },
+        { "type": "CALL", "amount": 50 },
+        { "type": "RAISE", "min": 100, "max": 1500 },
+        { "type": "ALL_IN", "amount": 1500 }
+      ],
+      "timeToActMs": 30000
+    }
+  }
 }
 ```
 
 Your response:
 
 ```json
-{ "handNumber": 1, "type": "RAISE", "amount": 200 }
+{ "action": "playerAction", "payload": { "handNumber": 1, "type": "RAISE", "amount": 200 } }
 ```
 
 **Action types:**
 
 | Action   | Fields      | Description                                                    |
 | -------- | ----------- | -------------------------------------------------------------- |
-| `FOLD`   | —           | Give up the hand                                               |
-| `CHECK`  | —           | Pass (only when no bet is open)                                |
-| `CALL`   | —           | Match the current bet (amount shown in actionRequest)          |
+| `FOLD`   | --          | Give up the hand                                               |
+| `CHECK`  | --          | Pass (only when no bet is open)                                |
+| `CALL`   | --          | Match the current bet (amount shown in actionRequest)          |
 | `BET`    | `amount`    | Open betting. Min = big blind, max = your stack                |
 | `RAISE`  | `amount`    | Raise. Min = 2x the bet differential, max = your stack         |
-| `ALL_IN` | —           | Bet your entire remaining stack                                |
+| `ALL_IN` | --          | Bet your entire remaining stack                                |
 
 **Timer:** You have `timeToActMs` milliseconds. The server sends `timeWarning` messages as the deadline approaches. If you don't respond in time, the server applies the default action (CHECK if possible, else FOLD) and broadcasts a `PLAYER_TIMEOUT` event.
 
 ### 5. Chat
 
-```
-Bot    ──> chat { message: "gg" }
-Server ──> chatMessage { playerId, displayName, message, timestamp }   ← to all
+```json
+// Bot sends:
+{ "action": "chat", "payload": { "message": "gg" } }
+
+// Server broadcasts to all:
+{ "action": "chatMessage", "payload": { "playerId": "uuid", "displayName": "MyBot", "message": "gg", "timestamp": "2026-02-06T..." } }
 ```
 
 No effect on gameplay.
@@ -164,7 +206,7 @@ The full snapshot sent with every game event:
 | `gameType`         | `"cash"`          | Game type (tournament support planned)                |
 | `handNumber`       | `integer`         | Monotonically increasing hand counter                 |
 | `stage`            | `Stage`           | `PRE_FLOP`, `FLOP`, `TURN`, `RIVER`, `SHOWDOWN`      |
-| `communityCards`   | `Card[]`          | Board cards (0–5)                                     |
+| `communityCards`   | `Card[]`          | Board cards (0-5)                                     |
 | `pot`              | `integer`         | Total chips in play                                   |
 | `pots`             | `PotBreakdown[]`  | Per-pot breakdown (for side pots)                     |
 | `players`          | `PlayerState[]`   | All players at the table                              |
@@ -192,7 +234,7 @@ The full snapshot sent with every game event:
 
 ## Event Types
 
-Events are discriminated on the `type` field.
+Events are discriminated on the `type` field within the `gameState` payload's `event` object.
 
 | Event type        | Key fields                                                     |
 | ----------------- | -------------------------------------------------------------- |
@@ -230,11 +272,11 @@ Events are discriminated on the `type` field.
 
 ## Edge Cases
 
-- **Reconnection:** Send `identify` with your `reconnectToken`. If you were in a game, the `identified` response includes `currentGame` with the full state.
+- **Reconnection:** Send `{ action: "identify", payload: { displayName: "...", reconnectToken: "..." } }`. If you were in a game, the `identified` response includes `currentGame` with the full state.
 - **Disconnect mid-hand:** You stay in the game (`connected: false`). Server auto-checks or auto-folds on your turns until you reconnect.
-- **Invalid action:** Server responds with `error`. You can retry within remaining time. If you don't, timeout applies.
+- **Invalid action:** Server responds with `{ action: "error", ... }`. You can retry within remaining time. If you don't, timeout applies.
 - **Side pots:** The `pots[]` array in GameState breaks down each pot with eligible players. `HAND_END` attributes winnings per pot index.
 - **Split pot:** Multiple entries in `winners[]` with the same `potIndex`.
 - **Everyone folds:** `HAND_END` fires immediately (no `SHOWDOWN`). Pot goes to the last player standing.
-- **Card reveal:** After `SHOWDOWN`, you can optionally send `revealCards`. Server broadcasts a `PLAYER_REVEALED` event.
+- **Card reveal:** After `SHOWDOWN`, you can optionally send `{ action: "revealCards", payload: { handNumber } }`. Server broadcasts a `PLAYER_REVEALED` event.
 - **Spectators:** Same `gameState` messages as players, but `holeCards` are visible for all players and `actionRequest` is never included.

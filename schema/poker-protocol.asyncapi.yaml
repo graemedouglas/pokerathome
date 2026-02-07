@@ -2,13 +2,19 @@ asyncapi: 3.1.0
 
 info:
   title: Poker@Home WebSocket Protocol
-  version: 0.1.0
+  version: 0.2.0
   description: |
     WebSocket protocol for Poker@Home, a bot-friendly online poker platform.
 
-    Bots and human players connect via Socket.IO and communicate using JSON messages.
+    Bots and human players connect via WebSocket and communicate using JSON messages.
     The protocol follows a reducer architecture: every game state transition produces
     a complete GameState snapshot, enabling crash recovery and stateless bot design.
+
+    Every message is a JSON object with a uniform envelope:
+    ```json
+    { "action": "<messageType>", "payload": { ... } }
+    ```
+    The `action` field discriminates the message type. The `payload` carries the data.
 
     Key concepts:
     - **GameState** — Complete snapshot of the game, sent with every game event.
@@ -22,259 +28,98 @@ info:
 servers:
   default:
     host: localhost:3000
-    pathname: /socket.io
+    pathname: /ws
     protocol: wss
-    description: Poker@Home game server (Socket.IO)
+    description: Poker@Home game server (WebSocket)
 
 defaultContentType: application/json
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CHANNELS — Each Socket.IO event name maps to one channel
+# CHANNELS — One per direction, each carrying all message types for that direction
 # ═══════════════════════════════════════════════════════════════════════════════
 
 channels:
 
-  # ─── Client → Server ────────────────────────────────────────────────────────
-
-  identify:
-    address: identify
+  clientMessage:
+    address: /
+    description: All client-to-server messages. Discriminated by the `action` field.
     messages:
-      identifyRequest:
-        $ref: '#/components/messages/IdentifyRequest'
-
-  listGames:
-    address: listGames
-    messages:
-      listGamesRequest:
-        $ref: '#/components/messages/ListGamesRequest'
-
-  joinGame:
-    address: joinGame
-    messages:
-      joinGameRequest:
-        $ref: '#/components/messages/JoinGameRequest'
-
-  ready:
-    address: ready
-    messages:
-      readySignal:
-        $ref: '#/components/messages/ReadySignal'
-
-  action:
-    address: action
-    messages:
+      identify:
+        $ref: '#/components/messages/IdentifyMessage'
+      listGames:
+        $ref: '#/components/messages/ListGamesMessage'
+      joinGame:
+        $ref: '#/components/messages/JoinGameMessage'
+      ready:
+        $ref: '#/components/messages/ReadyMessage'
       playerAction:
-        $ref: '#/components/messages/PlayerAction'
+        $ref: '#/components/messages/PlayerActionMessage'
+      revealCards:
+        $ref: '#/components/messages/RevealCardsMessage'
+      chat:
+        $ref: '#/components/messages/ChatMessage'
+      leaveGame:
+        $ref: '#/components/messages/LeaveGameMessage'
 
-  revealCards:
-    address: revealCards
+  serverMessage:
+    address: /
+    description: All server-to-client messages. Discriminated by the `action` field.
     messages:
-      revealCardsRequest:
-        $ref: '#/components/messages/RevealCardsRequest'
-
-  chat:
-    address: chat
-    messages:
-      chatSend:
-        $ref: '#/components/messages/ChatSend'
-
-  leaveGame:
-    address: leaveGame
-    messages:
-      leaveGameSignal:
-        $ref: '#/components/messages/LeaveGameSignal'
-
-  # ─── Server → Client ────────────────────────────────────────────────────────
-
-  identified:
-    address: identified
-    messages:
-      identifiedResponse:
-        $ref: '#/components/messages/IdentifiedResponse'
-
-  gameList:
-    address: gameList
-    messages:
-      gameListResponse:
-        $ref: '#/components/messages/GameListResponse'
-
-  gameJoined:
-    address: gameJoined
-    messages:
-      gameJoinedResponse:
-        $ref: '#/components/messages/GameJoinedResponse'
-
-  gameState:
-    address: gameState
-    messages:
-      gameStateUpdate:
-        $ref: '#/components/messages/GameStateUpdate'
-
-  timeWarning:
-    address: timeWarning
-    messages:
-      timeWarningNotice:
-        $ref: '#/components/messages/TimeWarningNotice'
-
-  gameOver:
-    address: gameOver
-    messages:
-      gameOverNotice:
-        $ref: '#/components/messages/GameOverNotice'
-
-  chatMessage:
-    address: chatMessage
-    messages:
-      chatMessageBroadcast:
-        $ref: '#/components/messages/ChatMessageBroadcast'
-
-  error:
-    address: error
-    messages:
-      errorNotice:
-        $ref: '#/components/messages/ErrorNotice'
+      identified:
+        $ref: '#/components/messages/IdentifiedMessage'
+      gameList:
+        $ref: '#/components/messages/GameListMessage'
+      gameJoined:
+        $ref: '#/components/messages/GameJoinedMessage'
+      gameState:
+        $ref: '#/components/messages/GameStateMessage'
+      timeWarning:
+        $ref: '#/components/messages/TimeWarningMessage'
+      gameOver:
+        $ref: '#/components/messages/GameOverMessage'
+      chatMessage:
+        $ref: '#/components/messages/ChatBroadcastMessage'
+      error:
+        $ref: '#/components/messages/ErrorMessage'
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# OPERATIONS — Send/receive bindings for each channel
+# OPERATIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 operations:
 
-  # ─── Client → Server (server receives) ──────────────────────────────────────
-
-  receiveIdentify:
+  receiveClientMessage:
     action: receive
     channel:
-      $ref: '#/channels/identify'
-    summary: Bot/player requests identity from the server
+      $ref: '#/channels/clientMessage'
+    summary: Server receives a message from a client (bot or human player)
     messages:
-      - $ref: '#/channels/identify/messages/identifyRequest'
+      - $ref: '#/channels/clientMessage/messages/identify'
+      - $ref: '#/channels/clientMessage/messages/listGames'
+      - $ref: '#/channels/clientMessage/messages/joinGame'
+      - $ref: '#/channels/clientMessage/messages/ready'
+      - $ref: '#/channels/clientMessage/messages/playerAction'
+      - $ref: '#/channels/clientMessage/messages/revealCards'
+      - $ref: '#/channels/clientMessage/messages/chat'
+      - $ref: '#/channels/clientMessage/messages/leaveGame'
 
-  receiveListGames:
-    action: receive
-    channel:
-      $ref: '#/channels/listGames'
-    summary: Bot/player requests the list of available games
-    messages:
-      - $ref: '#/channels/listGames/messages/listGamesRequest'
-
-  receiveJoinGame:
-    action: receive
-    channel:
-      $ref: '#/channels/joinGame'
-    summary: Bot/player requests to join a specific game
-    messages:
-      - $ref: '#/channels/joinGame/messages/joinGameRequest'
-
-  receiveReady:
-    action: receive
-    channel:
-      $ref: '#/channels/ready'
-    summary: Bot/player signals readiness to play
-    messages:
-      - $ref: '#/channels/ready/messages/readySignal'
-
-  receiveAction:
-    action: receive
-    channel:
-      $ref: '#/channels/action'
-    summary: Bot/player submits a game action (fold, call, raise, etc.)
-    messages:
-      - $ref: '#/channels/action/messages/playerAction'
-
-  receiveRevealCards:
-    action: receive
-    channel:
-      $ref: '#/channels/revealCards'
-    summary: Bot/player optionally reveals hole cards at showdown
-    messages:
-      - $ref: '#/channels/revealCards/messages/revealCardsRequest'
-
-  receiveChat:
-    action: receive
-    channel:
-      $ref: '#/channels/chat'
-    summary: Bot/player sends a chat message
-    messages:
-      - $ref: '#/channels/chat/messages/chatSend'
-
-  receiveLeaveGame:
-    action: receive
-    channel:
-      $ref: '#/channels/leaveGame'
-    summary: Bot/player leaves the current game
-    messages:
-      - $ref: '#/channels/leaveGame/messages/leaveGameSignal'
-
-  # ─── Server → Client (server sends) ─────────────────────────────────────────
-
-  sendIdentified:
+  sendServerMessage:
     action: send
     channel:
-      $ref: '#/channels/identified'
-    summary: Server confirms identity and assigns player ID
-    messages:
-      - $ref: '#/channels/identified/messages/identifiedResponse'
-
-  sendGameList:
-    action: send
-    channel:
-      $ref: '#/channels/gameList'
-    summary: Server sends the list of available games
-    messages:
-      - $ref: '#/channels/gameList/messages/gameListResponse'
-
-  sendGameJoined:
-    action: send
-    channel:
-      $ref: '#/channels/gameJoined'
-    summary: Server confirms the player joined a game
-    messages:
-      - $ref: '#/channels/gameJoined/messages/gameJoinedResponse'
-
-  sendGameState:
-    action: send
-    channel:
-      $ref: '#/channels/gameState'
-    summary: Server broadcasts game state update after every state transition
+      $ref: '#/channels/serverMessage'
+    summary: Server sends a message to a client
     description: |
-      The primary game message. Sent to all players after every state transition.
-      Contains the complete GameState snapshot, the triggering Event, and an
-      ActionRequest if it is now this specific player's turn.
+      All server-to-client messages use the same envelope. The primary workhorse
+      is `gameState`, sent after every game state transition with the full snapshot.
     messages:
-      - $ref: '#/channels/gameState/messages/gameStateUpdate'
-
-  sendTimeWarning:
-    action: send
-    channel:
-      $ref: '#/channels/timeWarning'
-    summary: Server warns the active player their action timer is running low
-    messages:
-      - $ref: '#/channels/timeWarning/messages/timeWarningNotice'
-
-  sendGameOver:
-    action: send
-    channel:
-      $ref: '#/channels/gameOver'
-    summary: Server announces the game has concluded
-    messages:
-      - $ref: '#/channels/gameOver/messages/gameOverNotice'
-
-  sendChatMessage:
-    action: send
-    channel:
-      $ref: '#/channels/chatMessage'
-    summary: Server broadcasts a chat message to all players
-    messages:
-      - $ref: '#/channels/chatMessage/messages/chatMessageBroadcast'
-
-  sendError:
-    action: send
-    channel:
-      $ref: '#/channels/error'
-    summary: Server sends an error notification
-    messages:
-      - $ref: '#/channels/error/messages/errorNotice'
+      - $ref: '#/channels/serverMessage/messages/identified'
+      - $ref: '#/channels/serverMessage/messages/gameList'
+      - $ref: '#/channels/serverMessage/messages/gameJoined'
+      - $ref: '#/channels/serverMessage/messages/gameState'
+      - $ref: '#/channels/serverMessage/messages/timeWarning'
+      - $ref: '#/channels/serverMessage/messages/gameOver'
+      - $ref: '#/channels/serverMessage/messages/chatMessage'
+      - $ref: '#/channels/serverMessage/messages/error'
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COMPONENTS — Reusable messages and schemas
@@ -283,116 +128,244 @@ operations:
 components:
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Messages
+  # Messages — Each wraps its payload in the { action, payload } envelope
   # ─────────────────────────────────────────────────────────────────────────────
 
   messages:
 
     # Client → Server ──────────────────────────────────────────────────────────
 
-    IdentifyRequest:
+    IdentifyMessage:
       summary: Request identity from the server
       description: |
         First message a bot/player sends after connecting. Include reconnectToken
         to resume a previous session (e.g. after crash recovery).
       payload:
-        $ref: '#/components/schemas/IdentifyPayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: identify
+          payload:
+            $ref: '#/components/schemas/IdentifyPayload'
 
-    ListGamesRequest:
+    ListGamesMessage:
       summary: Request list of available games
       payload:
         type: object
+        required: [action, payload]
         additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: listGames
+          payload:
+            type: object
+            additionalProperties: false
 
-    JoinGameRequest:
+    JoinGameMessage:
       summary: Request to join a game
       payload:
-        $ref: '#/components/schemas/JoinGamePayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: joinGame
+          payload:
+            $ref: '#/components/schemas/JoinGamePayload'
 
-    ReadySignal:
+    ReadyMessage:
       summary: Signal readiness to play
       payload:
         type: object
+        required: [action, payload]
         additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: ready
+          payload:
+            type: object
+            additionalProperties: false
 
-    PlayerAction:
-      summary: Submit a game action
+    PlayerActionMessage:
+      summary: Submit a game action (fold, call, raise, etc.)
       description: |
         Sent in response to an actionRequest in a gameState message.
         handNumber must match the current hand to prevent stale actions.
       payload:
-        $ref: '#/components/schemas/PlayerActionPayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: playerAction
+          payload:
+            $ref: '#/components/schemas/PlayerActionPayload'
 
-    RevealCardsRequest:
+    RevealCardsMessage:
       summary: Optionally reveal hole cards at showdown
       payload:
-        $ref: '#/components/schemas/RevealCardsPayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: revealCards
+          payload:
+            $ref: '#/components/schemas/RevealCardsPayload'
 
-    ChatSend:
+    ChatMessage:
       summary: Send a chat message
       payload:
-        $ref: '#/components/schemas/ChatSendPayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: chat
+          payload:
+            $ref: '#/components/schemas/ChatSendPayload'
 
-    LeaveGameSignal:
+    LeaveGameMessage:
       summary: Leave the current game
       payload:
         type: object
+        required: [action, payload]
         additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: leaveGame
+          payload:
+            type: object
+            additionalProperties: false
 
     # Server → Client ──────────────────────────────────────────────────────────
 
-    IdentifiedResponse:
+    IdentifiedMessage:
       summary: Identity confirmed
       description: |
         Returned after successful identification. If the player was in an active
         game (reconnect scenario), currentGame contains the full game state.
       payload:
-        $ref: '#/components/schemas/IdentifiedPayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: identified
+          payload:
+            $ref: '#/components/schemas/IdentifiedPayload'
 
-    GameListResponse:
+    GameListMessage:
       summary: List of available games
       payload:
-        $ref: '#/components/schemas/GameListPayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: gameList
+          payload:
+            $ref: '#/components/schemas/GameListPayload'
 
-    GameJoinedResponse:
+    GameJoinedMessage:
       summary: Successfully joined a game
       payload:
-        $ref: '#/components/schemas/GameJoinedPayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: gameJoined
+          payload:
+            $ref: '#/components/schemas/GameJoinedPayload'
 
-    GameStateUpdate:
+    GameStateMessage:
       summary: Game state transition (the main workhorse message)
       description: |
         Sent to all players after every game state transition. Contains the complete
         state snapshot, the event that caused it, and an ActionRequest if this
         specific player must now act.
       payload:
-        $ref: '#/components/schemas/GameStateUpdatePayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: gameState
+          payload:
+            $ref: '#/components/schemas/GameStateUpdatePayload'
 
-    TimeWarningNotice:
+    TimeWarningMessage:
       summary: Action timer countdown warning
       description: |
         Sent to the player whose turn it is when their timer is running low.
         Fired at configurable thresholds (e.g. 50% and 80% of allotted time).
       payload:
-        $ref: '#/components/schemas/TimeWarningPayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: timeWarning
+          payload:
+            $ref: '#/components/schemas/TimeWarningPayload'
 
-    GameOverNotice:
+    GameOverMessage:
       summary: Game has concluded
       payload:
-        $ref: '#/components/schemas/GameOverPayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: gameOver
+          payload:
+            $ref: '#/components/schemas/GameOverPayload'
 
-    ChatMessageBroadcast:
+    ChatBroadcastMessage:
       summary: Chat message broadcast to all players
       payload:
-        $ref: '#/components/schemas/ChatMessagePayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: chatMessage
+          payload:
+            $ref: '#/components/schemas/ChatMessagePayload'
 
-    ErrorNotice:
+    ErrorMessage:
       summary: Error notification
       description: |
         Sent when the server rejects a client message. For invalid actions during
         gameplay, the bot should retry within remaining time or face timeout.
       payload:
-        $ref: '#/components/schemas/ErrorPayload'
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: error
+          payload:
+            $ref: '#/components/schemas/ErrorPayload'
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Schemas
@@ -425,13 +398,23 @@ components:
     ActionType:
       type: string
       enum: [FOLD, CHECK, CALL, BET, RAISE, ALL_IN]
-      description: Type of player action.
+      description: Type of player/bot game action.
 
     PlayerRole:
       type: string
       enum: [player, spectator]
       description: >-
         Participant role. Spectators see all hole cards but never receive action requests.
+
+    ClientAction:
+      type: string
+      enum: [identify, listGames, joinGame, ready, playerAction, revealCards, chat, leaveGame]
+      description: Client-to-server message action types.
+
+    ServerAction:
+      type: string
+      enum: [identified, gameList, gameJoined, gameState, timeWarning, gameOver, chatMessage, error]
+      description: Server-to-client message action types.
 
     ErrorCode:
       type: string

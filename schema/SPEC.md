@@ -71,3 +71,7 @@ During the course of a game the bot can opt to send a CHAT message, which is jus
 When it's a bot's turn to act, the server should specify how long the bot has to act in ms. If the bot is not responding, the server will send messages to count, and then send a message to say their time is up and the neutral action is assumed to be taken (check if possible, else fold).
 
 END BOT GAME FLOW
+
+===
+
+Follow-up: WS messages should be fully-formed JSON. Action should just be a key.
