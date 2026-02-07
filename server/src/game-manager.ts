@@ -6,7 +6,7 @@
  * and periodic snapshots for crash recovery.
  */
 
-import type { Logger } from 'pino';
+import type { FastifyBaseLogger } from 'fastify';
 import type { Event, GameListItem, GameState, GameStateUpdatePayload } from '@pokerathome/schema';
 import type { SessionManager } from './ws/session.js';
 import {
@@ -62,7 +62,7 @@ interface JoinResult {
 export class GameManager {
   private activeGames = new Map<string, ActiveGame>();
 
-  constructor(private logger: Logger) {}
+  constructor(private logger: FastifyBaseLogger) {}
 
   // ─── Game lifecycle ─────────────────────────────────────────────────────────
 
@@ -279,7 +279,7 @@ export class GameManager {
     // Validate
     const validationError = validateAction(active.state, playerId, actionType, actionAmount);
     if (validationError) {
-      return { ok: false, errorCode: 'INVALID_ACTION', errorMessage: validationError };
+      return { ok: false, errorCode: validationError.code, errorMessage: validationError.message };
     }
 
     // Cancel action timer and process
@@ -301,6 +301,11 @@ export class GameManager {
     if (!active) return { ok: false, errorCode: 'GAME_NOT_FOUND', errorMessage: 'Game not found' };
     if (active.state.handNumber !== handNumber) {
       return { ok: false, errorCode: 'INVALID_ACTION', errorMessage: 'Wrong hand number' };
+    }
+
+    // Only allow reveals after showdown or when the hand has ended
+    if (active.state.handInProgress && active.state.stage !== 'SHOWDOWN') {
+      return { ok: false, errorCode: 'INVALID_ACTION', errorMessage: 'Can only reveal cards after showdown' };
     }
 
     const player = active.state.players.find((p) => p.id === playerId);
