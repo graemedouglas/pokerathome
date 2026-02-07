@@ -249,7 +249,13 @@ export class GameRenderer {
     const winnerIds = new Set(state.winners.map(w => w.playerIndex));
 
     for (let i = 0; i < NUM_SEATS; i++) {
-      this.playerRenderers[i].update(state.players[i], state.phase, winnerIds.has(i));
+      const player = state.players.find(p => p.seatIndex === i);
+      if (player) {
+        this.playerRenderers[i].visible = true;
+        this.playerRenderers[i].update(player, state.phase, winnerIds.has(i));
+      } else {
+        this.playerRenderers[i].visible = false;
+      }
     }
 
     this.communityCards.update(state.communityCards);
@@ -259,8 +265,10 @@ export class GameRenderer {
 
     if (state.phase === 'showdown' && state.winners.length > 0) {
       const lines = state.winners.map(w => {
-        const player = state.players[w.playerIndex];
-        return `${player.name} wins $${w.amount.toLocaleString()} ΓÇö ${w.handDescription}`;
+        const player = state.players.find(p => p.seatIndex === w.playerIndex);
+        return player
+          ? `${player.name} wins $${w.amount.toLocaleString()} — ${w.handDescription}`
+          : `Winner: $${w.amount.toLocaleString()} — ${w.handDescription}`;
       });
       this.winnerText.text = lines.join('\n');
 

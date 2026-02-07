@@ -1,6 +1,6 @@
 import type { ServerMessage } from '@pokerathome/schema'
 import type { GameListItem, GameStateUpdatePayload } from '@pokerathome/schema'
-import type { WsClient } from '../network/ws-client'
+import { WsClient } from '../network/ws-client'
 
 export interface LobbyResult {
   playerId: string
@@ -49,8 +49,6 @@ export class Lobby {
 
   private showConnectScreen(storedToken?: string | null): void {
     this.currentScreen = 'connect'
-    const content = this.overlay.querySelector('.lobby-content') ?? this.overlay
-    content.innerHTML = ''
 
     const container = el('div', 'lobby-card')
 
@@ -209,8 +207,12 @@ export class Lobby {
       }
 
       case 'gameState': {
-        // Game has started - transition to game view
-        this.finish(msg.payload as GameStateUpdatePayload)
+        const gsPayload = msg.payload as GameStateUpdatePayload
+        const eventType = gsPayload.event?.type
+        // Only transition to game view on actual gameplay events, not lobby-phase events
+        if (eventType && eventType !== 'PLAYER_JOINED' && eventType !== 'PLAYER_LEFT') {
+          this.finish(gsPayload)
+        }
         break
       }
 
