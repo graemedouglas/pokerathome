@@ -4,6 +4,7 @@
   "description": "Self-hostable online poker for humans and robots",
   "scripts": {
     "dev": "pnpm --filter @pokerathome/server dev",
+    "dev:ui": "pnpm --filter @pokerathome/ui dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm --filter @pokerathome/server test"
