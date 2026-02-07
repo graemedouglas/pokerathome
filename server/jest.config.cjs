@@ -8,4 +8,13 @@ module.exports = {
     '^(\\.{1,2}/.*)\\.js$': '$1',
     '^@pokerathome/schema$': '<rootDir>/../schema/src/index.ts',
   },
+  transform: {
+    '^.+\\.tsx?$': [
+      'ts-jest',
+      {
+        // We type-check with tsc separately; skip ts-jest diagnostics
+        diagnostics: false,
+      },
+    ],
+  },
 };

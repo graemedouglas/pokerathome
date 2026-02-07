@@ -2,8 +2,7 @@
  * WebSocket server setup with Fastify.
  */
 
-import type { FastifyInstance } from 'fastify';
-import type { Logger } from 'pino';
+import type { FastifyInstance, FastifyBaseLogger } from 'fastify';
 import type { SessionManager } from './session.js';
 import type { GameManager } from '../game-manager.js';
 import { createRouter } from './router.js';
@@ -12,7 +11,7 @@ export function registerWebSocket(
   app: FastifyInstance,
   sessionManager: SessionManager,
   gameManager: GameManager,
-  logger: Logger
+  logger: FastifyBaseLogger
 ): void {
   const route = createRouter(sessionManager, gameManager, logger);
 

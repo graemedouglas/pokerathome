@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Logger } from 'pino';
+import type { FastifyBaseLogger } from 'fastify';
 import { config } from '../config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -16,7 +16,7 @@ export function getDb(): Database.Database {
   return db;
 }
 
-export function initDb(logger: Logger): Database.Database {
+export function initDb(logger: FastifyBaseLogger): Database.Database {
   db = new Database(config.DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
@@ -29,7 +29,7 @@ export function initDb(logger: Logger): Database.Database {
   return db;
 }
 
-export function closeDb(logger: Logger): void {
+export function closeDb(logger: FastifyBaseLogger): void {
   if (db) {
     db.close();
     logger.info('Database closed');

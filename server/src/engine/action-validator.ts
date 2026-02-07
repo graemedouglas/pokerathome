@@ -55,32 +55,40 @@ export function getAvailableActions(state: EngineState, playerId: string): Actio
   return actions;
 }
 
+export interface ValidationError {
+  code: 'INVALID_ACTION' | 'INVALID_AMOUNT';
+  message: string;
+}
+
 /**
  * Validate that a submitted action is legal.
- * Returns an error message if invalid, or null if valid.
+ * Returns a ValidationError if invalid, or null if valid.
  */
 export function validateAction(
   state: EngineState,
   playerId: string,
   actionType: string,
   actionAmount?: number
-): string | null {
+): ValidationError | null {
   const available = getAvailableActions(state, playerId);
   const option = available.find((a) => a.type === actionType);
 
   if (!option) {
-    return `Action ${actionType} is not available. Available: ${available.map((a) => a.type).join(', ')}`;
+    return {
+      code: 'INVALID_ACTION',
+      message: `Action ${actionType} is not available. Available: ${available.map((a) => a.type).join(', ')}`,
+    };
   }
 
   if (actionType === 'BET' || actionType === 'RAISE') {
     if (actionAmount === undefined) {
-      return `${actionType} requires an amount`;
+      return { code: 'INVALID_AMOUNT', message: `${actionType} requires an amount` };
     }
     if (option.min !== undefined && actionAmount < option.min) {
-      return `${actionType} amount ${actionAmount} is below minimum ${option.min}`;
+      return { code: 'INVALID_AMOUNT', message: `${actionType} amount ${actionAmount} is below minimum ${option.min}` };
     }
     if (option.max !== undefined && actionAmount > option.max) {
-      return `${actionType} amount ${actionAmount} is above maximum ${option.max}`;
+      return { code: 'INVALID_AMOUNT', message: `${actionType} amount ${actionAmount} is above maximum ${option.max}` };
     }
   }
 

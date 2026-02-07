@@ -343,7 +343,7 @@ export type ChatMessagePayload = z.infer<typeof ChatMessagePayload>;
 export const ErrorPayload = z.object({
   code: ErrorCode,
   message: z.string(),
-  details: z.record(z.unknown()).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
 });
 export type ErrorPayload = z.infer<typeof ErrorPayload>;
 

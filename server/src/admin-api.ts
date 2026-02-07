@@ -3,7 +3,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import type { Logger } from 'pino';
+import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
 import { createGame, getGameById, listGames, deleteGame, getGamePlayers, getGamePlayerCount } from './db/queries.js';
 import type { GameManager } from './game-manager.js';
@@ -22,7 +22,7 @@ export function registerAdminRoutes(
   app: FastifyInstance,
   gameManager: GameManager,
   sessionManager: SessionManager,
-  logger: Logger
+  logger: FastifyBaseLogger
 ): void {
   // List all games
   app.get('/api/games', async (_request, reply) => {
@@ -47,7 +47,7 @@ export function registerAdminRoutes(
   app.post('/api/games', async (request, reply) => {
     const body = CreateGameBody.safeParse(request.body);
     if (!body.success) {
-      return reply.status(400).send({ error: body.error.issues.map((i) => i.message).join('; ') });
+      return reply.status(400).send({ error: body.error.issues.map((i: { message: string }) => i.message).join('; ') });
     }
 
     const game = createGame({

@@ -3,3 +3,18 @@ packages:
   - server
   - admin
   - ui
+
+ignoredBuiltDependencies:
+  - "@asyncapi/cli"
+  - "@hyperjump/json-pointer"
+  - "@hyperjump/json-schema"
+  - "@hyperjump/json-schema-core"
+  - "@hyperjump/pact"
+  - esbuild
+  - protobufjs
+  - puppeteer
+  - unrs-resolver
+  - yarn
+
+onlyBuiltDependencies:
+  - better-sqlite3

@@ -4,7 +4,7 @@
  */
 
 import type { WebSocket } from 'ws';
-import type { Logger } from 'pino';
+import type { FastifyBaseLogger } from 'fastify';
 import { ClientMessage } from '@pokerathome/schema';
 import type { SessionManager } from './session.js';
 import type { GameManager } from '../game-manager.js';
@@ -13,7 +13,7 @@ import * as handlers from './handlers.js';
 export function createRouter(
   sessionManager: SessionManager,
   gameManager: GameManager,
-  logger: Logger
+  logger: FastifyBaseLogger
 ) {
   return function handleMessage(socket: WebSocket, raw: string): void {
     // Parse JSON
@@ -28,7 +28,7 @@ export function createRouter(
     // Validate against ClientMessage schema
     const result = ClientMessage.safeParse(parsed);
     if (!result.success) {
-      const details = result.error.issues.map((i) => i.message).join('; ');
+      const details = result.error.issues.map((i: { message: string }) => i.message).join('; ');
       sendError(socket, 'INVALID_MESSAGE', `Invalid message: ${details}`);
       return;
     }

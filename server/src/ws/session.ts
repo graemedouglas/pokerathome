@@ -4,7 +4,7 @@
  */
 
 import type { WebSocket } from 'ws';
-import type { Logger } from 'pino';
+import type { FastifyBaseLogger } from 'fastify';
 
 export interface PlayerSession {
   playerId: string;
@@ -20,7 +20,7 @@ export class SessionManager {
   /** socket -> playerId (reverse lookup) */
   private socketToPlayer = new Map<WebSocket, string>();
 
-  constructor(private logger: Logger) {}
+  constructor(private logger: FastifyBaseLogger) {}
 
   register(playerId: string, displayName: string, socket: WebSocket): void {
     // If player already has a session (reconnect), close old socket

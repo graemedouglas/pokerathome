@@ -3,7 +3,7 @@
  */
 
 import type { WebSocket } from 'ws';
-import type { Logger } from 'pino';
+import type { FastifyBaseLogger } from 'fastify';
 import type {
   IdentifyPayload,
   JoinGamePayload,
@@ -27,7 +27,7 @@ export function handleIdentify(
   payload: IdentifyPayload,
   sessions: SessionManager,
   gameManager: GameManager,
-  logger: Logger
+  logger: FastifyBaseLogger
 ): void {
   let playerId: string;
   let reconnectToken: string;
@@ -80,7 +80,7 @@ export function handleListGames(
   session: PlayerSession,
   sessions: SessionManager,
   gameManager: GameManager,
-  _logger: Logger
+  _logger: FastifyBaseLogger
 ): void {
   const games = gameManager.getGameList();
   sessions.send(session.playerId, {
@@ -96,7 +96,7 @@ export function handleJoinGame(
   payload: JoinGamePayload,
   sessions: SessionManager,
   gameManager: GameManager,
-  logger: Logger
+  logger: FastifyBaseLogger
 ): void {
   if (session.gameId) {
     sessions.send(session.playerId, {
@@ -139,7 +139,7 @@ export function handleReady(
   session: PlayerSession,
   sessions: SessionManager,
   gameManager: GameManager,
-  logger: Logger
+  logger: FastifyBaseLogger
 ): void {
   if (!session.gameId) {
     sessions.send(session.playerId, {
@@ -163,7 +163,7 @@ export function handlePlayerAction(
   payload: PlayerActionPayload,
   sessions: SessionManager,
   gameManager: GameManager,
-  logger: Logger
+  logger: FastifyBaseLogger
 ): void {
   if (!session.gameId) {
     sessions.send(session.playerId, {
@@ -205,7 +205,7 @@ export function handleRevealCards(
   payload: RevealCardsPayload,
   sessions: SessionManager,
   gameManager: GameManager,
-  logger: Logger
+  logger: FastifyBaseLogger
 ): void {
   if (!session.gameId) {
     sessions.send(session.playerId, {
@@ -235,7 +235,7 @@ export function handleChat(
   payload: ChatSendPayload,
   sessions: SessionManager,
   _gameManager: GameManager,
-  _logger: Logger
+  _logger: FastifyBaseLogger
 ): void {
   if (!session.gameId) {
     sessions.send(session.playerId, {
@@ -262,7 +262,7 @@ export function handleLeaveGame(
   session: PlayerSession,
   sessions: SessionManager,
   gameManager: GameManager,
-  logger: Logger
+  logger: FastifyBaseLogger
 ): void {
   if (!session.gameId) {
     sessions.send(session.playerId, {

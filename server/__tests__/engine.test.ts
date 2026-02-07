@@ -307,6 +307,7 @@ describe('Action validator', () => {
 
     const error = validateAction(dealState, activeId, 'CHECK');
     expect(error).not.toBeNull();
+    expect(error!.code).toBe('INVALID_ACTION');
   });
 
   test('validateAction accepts valid CALL', () => {
@@ -317,5 +318,16 @@ describe('Action validator', () => {
 
     const error = validateAction(dealState, activeId, 'CALL');
     expect(error).toBeNull();
+  });
+
+  test('validateAction returns INVALID_AMOUNT for out-of-range raise', () => {
+    const state = createTestGame();
+    const transitions = startHand(state);
+    const dealState = transitions[transitions.length - 1].state;
+    const activeId = dealState.activePlayerId!;
+
+    const error = validateAction(dealState, activeId, 'RAISE', 1);
+    expect(error).not.toBeNull();
+    expect(error!.code).toBe('INVALID_AMOUNT');
   });
 });
