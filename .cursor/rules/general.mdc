@@ -1,0 +1,31 @@
+---
+alwaysApply: true
+---
+
+Node stack preferences:
+
+- Prefer pnpm over npm.
+- Keep the stack lean and DO NOT `pnpm install` on your own, I MUST verify your package.json to avoid any poisoned or malicious packages.
+- General dependencies we almost always want: dotenv, pino, pino-pretty, zod, typescript, ts-node, tsx, eslint with minimal config, prettier, jest, date-fns
+- Use the newest major versions. If you do not have them, query them via pnpm.
+
+General rules:
+
+- The golden rule above all else: be pragmatic. If any direction or rule I provide you would cause complexity explosion or brittle code, then strive to find the right balance and happy compromise to engineer good robust design. If you choose to overrule me, explicitly call it out so I am aware of your conscious decision so I can review it.
+- To an extent, I give you certain creative flexibility to make smart decisions if you deem it wise. However, if I use the word "must" or any explicit directive, then please obey. If I use phrasing like "etc" that is me specifically giving you some creative freedom to make good design choices there.
+- Make sure our data layers and API surfaces are nice and clean.
+- Where applicable, write tests alongside any feature code.
+  - Prefer a strong, minimally comprehensive test suite over lots of tiny unit tests that mostly add noise and not value.
+  - Aim to write tests that are flexible and not tightly coupled to the nuts and bolts of the code.
+- Have good logging of all key actions and tasks so we have good tools to debug.
+- Avoid excessive fancy technical design and really try to target that nice point where there's enough architecture to be modular and extensible, but not so overkill that there's layers and layers of design that bogs everything down. Basically: I'm saying don't be clever, just write good clean code.
+  - Types and interfaces created should be streamlined. The golden standard is one shape per logical entity. If we have some entity that comes from an API response, is then stored in the DB, and fetched and an object is passed around the app, we should strive to represent this with one type to minimize refactoring overhead and the amount of shape transformation and plumbing we do - but exceptions are allowed if having more representations significantly reduces code complexity.
+  - Unless it VERY STRONGLY makes sense to do so, avoid unnecessary renaming of values as they are plumbed. For example: if the API response gives us a field "startDate", don't unnecessarily rename it to "startedAt". The goal is to streamline our interfaces to reduce how many layers have to be kept in the mental state while working with the code. Exceptions can apply if our intent and usage around a value is different than how it is presented when received, or if the provided naming is poor and unclear.
+- All datetime definitions, expressions, and arithmetic should use date-fns utilities whenever possible.
+- If we have docs and markdown files, do a quick scan to ensure we keep them in sync and correct drift as we iterate.
+- As we refactor, iterate, and build on top of a slowly growing system, I always want you to make sure you take two steps back and make sure we're not just kludging feature on top of feature. If we need to refactor slightly to make a more elegant and straightfoward feature buildout, then we should always do so.
+- For UI and UX design, I like things to be sleek and crunchy - think the good parts of Apple's design language. Like not so minimalist that things are unclear, but not overdecorated and verbose, either.
+
+Minutiae:
+
+- If using pino, try-catch must name the error param as "err", and the object passed must be like logger.error/fatal({ err }) in order for the error object to serialize properly.

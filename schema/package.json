@@ -1,0 +1,18 @@
+{
+  "name": "@pokerathome/schema",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Poker@Home WebSocket protocol schema, docs, and type generation",
+  "scripts": {
+    "validate": "asyncapi validate poker-protocol.asyncapi.yaml",
+    "docs": "asyncapi generate fromTemplate poker-protocol.asyncapi.yaml @asyncapi/html-template -o generated/docs --force-write -p singleFile=true",
+    "types": "asyncapi generate models typescript poker-protocol.asyncapi.yaml -o generated/types"
+  },
+  "devDependencies": {
+    "@asyncapi/cli": "6.0.0",
+    "@asyncapi/html-template": "3.5.4",
+    "@asyncapi/modelina": "5.10.1",
+    "typescript": "5.9.3"
+  },
+  "packageManager": "pnpm@10.24.0+sha512.01ff8ae71b4419903b65c60fb2dc9d34cf8bb6e06d03bde112ef38f7a34d6904c424ba66bea5cdcf12890230bf39f9580473140ed9c946fef328b6e5238a345a"
+}

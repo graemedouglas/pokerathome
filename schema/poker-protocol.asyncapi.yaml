@@ -1,0 +1,1166 @@
+asyncapi: 3.1.0
+
+info:
+  title: Poker@Home WebSocket Protocol
+  version: 0.1.0
+  description: |
+    WebSocket protocol for Poker@Home, a bot-friendly online poker platform.
+
+    Bots and human players connect via Socket.IO and communicate using JSON messages.
+    The protocol follows a reducer architecture: every game state transition produces
+    a complete GameState snapshot, enabling crash recovery and stateless bot design.
+
+    Key concepts:
+    - **GameState** — Complete snapshot of the game, sent with every game event.
+    - **Event** — Discriminated union describing what just happened.
+    - **ActionRequest** — When it's your turn, describes available actions and constraints.
+    - **Action** — Your response when prompted to act.
+
+    Card notation: rank + suit. Ranks: 2-9, T, J, Q, K, A. Suits: h (hearts), d (diamonds), c (clubs), s (spades).
+    Examples: `Ad` (ace of diamonds), `Tc` (ten of clubs), `6s` (six of spades).
+
+servers:
+  default:
+    host: localhost:3000
+    pathname: /socket.io
+    protocol: wss
+    description: Poker@Home game server (Socket.IO)
+
+defaultContentType: application/json
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CHANNELS — Each Socket.IO event name maps to one channel
+# ═══════════════════════════════════════════════════════════════════════════════
+
+channels:
+
+  # ─── Client → Server ────────────────────────────────────────────────────────
+
+  identify:
+    address: identify
+    messages:
+      identifyRequest:
+        $ref: '#/components/messages/IdentifyRequest'
+
+  listGames:
+    address: listGames
+    messages:
+      listGamesRequest:
+        $ref: '#/components/messages/ListGamesRequest'
+
+  joinGame:
+    address: joinGame
+    messages:
+      joinGameRequest:
+        $ref: '#/components/messages/JoinGameRequest'
+
+  ready:
+    address: ready
+    messages:
+      readySignal:
+        $ref: '#/components/messages/ReadySignal'
+
+  action:
+    address: action
+    messages:
+      playerAction:
+        $ref: '#/components/messages/PlayerAction'
+
+  revealCards:
+    address: revealCards
+    messages:
+      revealCardsRequest:
+        $ref: '#/components/messages/RevealCardsRequest'
+
+  chat:
+    address: chat
+    messages:
+      chatSend:
+        $ref: '#/components/messages/ChatSend'
+
+  leaveGame:
+    address: leaveGame
+    messages:
+      leaveGameSignal:
+        $ref: '#/components/messages/LeaveGameSignal'
+
+  # ─── Server → Client ────────────────────────────────────────────────────────
+
+  identified:
+    address: identified
+    messages:
+      identifiedResponse:
+        $ref: '#/components/messages/IdentifiedResponse'
+
+  gameList:
+    address: gameList
+    messages:
+      gameListResponse:
+        $ref: '#/components/messages/GameListResponse'
+
+  gameJoined:
+    address: gameJoined
+    messages:
+      gameJoinedResponse:
+        $ref: '#/components/messages/GameJoinedResponse'
+
+  gameState:
+    address: gameState
+    messages:
+      gameStateUpdate:
+        $ref: '#/components/messages/GameStateUpdate'
+
+  timeWarning:
+    address: timeWarning
+    messages:
+      timeWarningNotice:
+        $ref: '#/components/messages/TimeWarningNotice'
+
+  gameOver:
+    address: gameOver
+    messages:
+      gameOverNotice:
+        $ref: '#/components/messages/GameOverNotice'
+
+  chatMessage:
+    address: chatMessage
+    messages:
+      chatMessageBroadcast:
+        $ref: '#/components/messages/ChatMessageBroadcast'
+
+  error:
+    address: error
+    messages:
+      errorNotice:
+        $ref: '#/components/messages/ErrorNotice'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OPERATIONS — Send/receive bindings for each channel
+# ═══════════════════════════════════════════════════════════════════════════════
+
+operations:
+
+  # ─── Client → Server (server receives) ──────────────────────────────────────
+
+  receiveIdentify:
+    action: receive
+    channel:
+      $ref: '#/channels/identify'
+    summary: Bot/player requests identity from the server
+    messages:
+      - $ref: '#/channels/identify/messages/identifyRequest'
+
+  receiveListGames:
+    action: receive
+    channel:
+      $ref: '#/channels/listGames'
+    summary: Bot/player requests the list of available games
+    messages:
+      - $ref: '#/channels/listGames/messages/listGamesRequest'
+
+  receiveJoinGame:
+    action: receive
+    channel:
+      $ref: '#/channels/joinGame'
+    summary: Bot/player requests to join a specific game
+    messages:
+      - $ref: '#/channels/joinGame/messages/joinGameRequest'
+
+  receiveReady:
+    action: receive
+    channel:
+      $ref: '#/channels/ready'
+    summary: Bot/player signals readiness to play
+    messages:
+      - $ref: '#/channels/ready/messages/readySignal'
+
+  receiveAction:
+    action: receive
+    channel:
+      $ref: '#/channels/action'
+    summary: Bot/player submits a game action (fold, call, raise, etc.)
+    messages:
+      - $ref: '#/channels/action/messages/playerAction'
+
+  receiveRevealCards:
+    action: receive
+    channel:
+      $ref: '#/channels/revealCards'
+    summary: Bot/player optionally reveals hole cards at showdown
+    messages:
+      - $ref: '#/channels/revealCards/messages/revealCardsRequest'
+
+  receiveChat:
+    action: receive
+    channel:
+      $ref: '#/channels/chat'
+    summary: Bot/player sends a chat message
+    messages:
+      - $ref: '#/channels/chat/messages/chatSend'
+
+  receiveLeaveGame:
+    action: receive
+    channel:
+      $ref: '#/channels/leaveGame'
+    summary: Bot/player leaves the current game
+    messages:
+      - $ref: '#/channels/leaveGame/messages/leaveGameSignal'
+
+  # ─── Server → Client (server sends) ─────────────────────────────────────────
+
+  sendIdentified:
+    action: send
+    channel:
+      $ref: '#/channels/identified'
+    summary: Server confirms identity and assigns player ID
+    messages:
+      - $ref: '#/channels/identified/messages/identifiedResponse'
+
+  sendGameList:
+    action: send
+    channel:
+      $ref: '#/channels/gameList'
+    summary: Server sends the list of available games
+    messages:
+      - $ref: '#/channels/gameList/messages/gameListResponse'
+
+  sendGameJoined:
+    action: send
+    channel:
+      $ref: '#/channels/gameJoined'
+    summary: Server confirms the player joined a game
+    messages:
+      - $ref: '#/channels/gameJoined/messages/gameJoinedResponse'
+
+  sendGameState:
+    action: send
+    channel:
+      $ref: '#/channels/gameState'
+    summary: Server broadcasts game state update after every state transition
+    description: |
+      The primary game message. Sent to all players after every state transition.
+      Contains the complete GameState snapshot, the triggering Event, and an
+      ActionRequest if it is now this specific player's turn.
+    messages:
+      - $ref: '#/channels/gameState/messages/gameStateUpdate'
+
+  sendTimeWarning:
+    action: send
+    channel:
+      $ref: '#/channels/timeWarning'
+    summary: Server warns the active player their action timer is running low
+    messages:
+      - $ref: '#/channels/timeWarning/messages/timeWarningNotice'
+
+  sendGameOver:
+    action: send
+    channel:
+      $ref: '#/channels/gameOver'
+    summary: Server announces the game has concluded
+    messages:
+      - $ref: '#/channels/gameOver/messages/gameOverNotice'
+
+  sendChatMessage:
+    action: send
+    channel:
+      $ref: '#/channels/chatMessage'
+    summary: Server broadcasts a chat message to all players
+    messages:
+      - $ref: '#/channels/chatMessage/messages/chatMessageBroadcast'
+
+  sendError:
+    action: send
+    channel:
+      $ref: '#/channels/error'
+    summary: Server sends an error notification
+    messages:
+      - $ref: '#/channels/error/messages/errorNotice'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COMPONENTS — Reusable messages and schemas
+# ═══════════════════════════════════════════════════════════════════════════════
+
+components:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Messages
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  messages:
+
+    # Client → Server ──────────────────────────────────────────────────────────
+
+    IdentifyRequest:
+      summary: Request identity from the server
+      description: |
+        First message a bot/player sends after connecting. Include reconnectToken
+        to resume a previous session (e.g. after crash recovery).
+      payload:
+        $ref: '#/components/schemas/IdentifyPayload'
+
+    ListGamesRequest:
+      summary: Request list of available games
+      payload:
+        type: object
+        additionalProperties: false
+
+    JoinGameRequest:
+      summary: Request to join a game
+      payload:
+        $ref: '#/components/schemas/JoinGamePayload'
+
+    ReadySignal:
+      summary: Signal readiness to play
+      payload:
+        type: object
+        additionalProperties: false
+
+    PlayerAction:
+      summary: Submit a game action
+      description: |
+        Sent in response to an actionRequest in a gameState message.
+        handNumber must match the current hand to prevent stale actions.
+      payload:
+        $ref: '#/components/schemas/PlayerActionPayload'
+
+    RevealCardsRequest:
+      summary: Optionally reveal hole cards at showdown
+      payload:
+        $ref: '#/components/schemas/RevealCardsPayload'
+
+    ChatSend:
+      summary: Send a chat message
+      payload:
+        $ref: '#/components/schemas/ChatSendPayload'
+
+    LeaveGameSignal:
+      summary: Leave the current game
+      payload:
+        type: object
+        additionalProperties: false
+
+    # Server → Client ──────────────────────────────────────────────────────────
+
+    IdentifiedResponse:
+      summary: Identity confirmed
+      description: |
+        Returned after successful identification. If the player was in an active
+        game (reconnect scenario), currentGame contains the full game state.
+      payload:
+        $ref: '#/components/schemas/IdentifiedPayload'
+
+    GameListResponse:
+      summary: List of available games
+      payload:
+        $ref: '#/components/schemas/GameListPayload'
+
+    GameJoinedResponse:
+      summary: Successfully joined a game
+      payload:
+        $ref: '#/components/schemas/GameJoinedPayload'
+
+    GameStateUpdate:
+      summary: Game state transition (the main workhorse message)
+      description: |
+        Sent to all players after every game state transition. Contains the complete
+        state snapshot, the event that caused it, and an ActionRequest if this
+        specific player must now act.
+      payload:
+        $ref: '#/components/schemas/GameStateUpdatePayload'
+
+    TimeWarningNotice:
+      summary: Action timer countdown warning
+      description: |
+        Sent to the player whose turn it is when their timer is running low.
+        Fired at configurable thresholds (e.g. 50% and 80% of allotted time).
+      payload:
+        $ref: '#/components/schemas/TimeWarningPayload'
+
+    GameOverNotice:
+      summary: Game has concluded
+      payload:
+        $ref: '#/components/schemas/GameOverPayload'
+
+    ChatMessageBroadcast:
+      summary: Chat message broadcast to all players
+      payload:
+        $ref: '#/components/schemas/ChatMessagePayload'
+
+    ErrorNotice:
+      summary: Error notification
+      description: |
+        Sent when the server rejects a client message. For invalid actions during
+        gameplay, the bot should retry within remaining time or face timeout.
+      payload:
+        $ref: '#/components/schemas/ErrorPayload'
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Schemas
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  schemas:
+
+    # ── Primitives & Enums ────────────────────────────────────────────────────
+
+    Card:
+      type: string
+      pattern: '^[2-9TJQKA][hdcs]$'
+      description: >-
+        Card in standard notation: rank (2-9, T, J, Q, K, A) + suit (h, d, c, s).
+      examples:
+        - Ad
+        - Tc
+        - 6s
+
+    GameType:
+      type: string
+      enum: [cash, tournament]
+      description: Type of poker game.
+
+    Stage:
+      type: string
+      enum: [PRE_FLOP, FLOP, TURN, RIVER, SHOWDOWN]
+      description: Current stage within a hand.
+
+    ActionType:
+      type: string
+      enum: [FOLD, CHECK, CALL, BET, RAISE, ALL_IN]
+      description: Type of player action.
+
+    PlayerRole:
+      type: string
+      enum: [player, spectator]
+      description: >-
+        Participant role. Spectators see all hole cards but never receive action requests.
+
+    ErrorCode:
+      type: string
+      enum:
+        - INVALID_ACTION
+        - OUT_OF_TURN
+        - INVALID_AMOUNT
+        - NOT_IN_GAME
+        - GAME_NOT_FOUND
+        - GAME_FULL
+        - ALREADY_IN_GAME
+        - NOT_IDENTIFIED
+        - INVALID_MESSAGE
+      description: Machine-readable error code.
+
+    HandRank:
+      type: string
+      enum:
+        - HIGH_CARD
+        - PAIR
+        - TWO_PAIR
+        - THREE_OF_A_KIND
+        - STRAIGHT
+        - FLUSH
+        - FULL_HOUSE
+        - FOUR_OF_A_KIND
+        - STRAIGHT_FLUSH
+        - ROYAL_FLUSH
+      description: Poker hand ranking (weakest to strongest).
+
+    # ── Core Domain Objects ───────────────────────────────────────────────────
+
+    PlayerState:
+      type: object
+      required:
+        - id
+        - displayName
+        - seatIndex
+        - role
+        - stack
+        - bet
+        - potShare
+        - folded
+        - connected
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique player identifier.
+        displayName:
+          type: string
+          description: Player's chosen display name.
+        seatIndex:
+          type: integer
+          minimum: 0
+          description: Seat position at the table (0-indexed).
+        role:
+          $ref: '#/components/schemas/PlayerRole'
+        stack:
+          type: integer
+          minimum: 0
+          description: Chips owned by the player (not committed to pot).
+        bet:
+          type: integer
+          minimum: 0
+          description: Chips committed in the current betting round.
+        potShare:
+          type: integer
+          minimum: 0
+          description: Total chips contributed to the pot across all rounds, inclusive of current bet.
+        folded:
+          type: boolean
+          description: Whether the player has folded this hand.
+        holeCards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+          minItems: 2
+          maxItems: 2
+          nullable: true
+          description: >-
+            Player's hole cards. Null for opponents (hidden information).
+            Visible for the player themselves and for all spectators.
+        connected:
+          type: boolean
+          description: Whether the player is currently connected.
+
+    PotBreakdown:
+      type: object
+      required: [amount, eligiblePlayerIds]
+      additionalProperties: false
+      properties:
+        amount:
+          type: integer
+          minimum: 0
+          description: Total chips in this pot.
+        eligiblePlayerIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Players eligible to win this pot.
+
+    GameState:
+      type: object
+      required:
+        - gameId
+        - gameType
+        - handNumber
+        - stage
+        - communityCards
+        - pot
+        - pots
+        - players
+        - dealerSeatIndex
+        - smallBlindAmount
+        - bigBlindAmount
+        - activePlayerId
+      additionalProperties: false
+      properties:
+        gameId:
+          type: string
+          format: uuid
+          description: Unique game identifier.
+        gameType:
+          $ref: '#/components/schemas/GameType'
+        handNumber:
+          type: integer
+          minimum: 0
+          description: Monotonically increasing hand counter.
+        stage:
+          $ref: '#/components/schemas/Stage'
+        communityCards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+          maxItems: 5
+          description: >-
+            Community cards on the board.
+            0 pre-flop, 3 on flop, 4 on turn, 5 on river.
+        pot:
+          type: integer
+          minimum: 0
+          description: Total chips in play across all pots.
+        pots:
+          type: array
+          items:
+            $ref: '#/components/schemas/PotBreakdown'
+          description: >-
+            Pot breakdown for side pot scenarios.
+            Single-element array in the common case (no side pots).
+        players:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlayerState'
+          description: State of all players at the table.
+        dealerSeatIndex:
+          type: integer
+          minimum: 0
+          description: Seat index of the dealer button.
+        smallBlindAmount:
+          type: integer
+          minimum: 1
+          description: Current small blind amount.
+        bigBlindAmount:
+          type: integer
+          minimum: 1
+          description: Current big blind amount.
+        activePlayerId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Player who must act next, or null if no action pending.
+        # ── Tournament extension (future) ──
+        # blindSchedule:
+        #   type: array
+        #   items:
+        #     $ref: '#/components/schemas/BlindLevel'
+        #   description: '[Tournament only] Full blind schedule.'
+        # nextBlindLevel:
+        #   $ref: '#/components/schemas/NextBlindLevel'
+        #   description: '[Tournament only] Next blind level and ms until it activates.'
+
+    # ── Action Schemas ────────────────────────────────────────────────────────
+
+    ActionOption:
+      type: object
+      required: [type]
+      additionalProperties: false
+      description: |
+        One available action and its constraints.
+        Field presence depends on type:
+          FOLD    — no extra fields
+          CHECK   — no extra fields
+          CALL    — amount (fixed)
+          BET     — min, max
+          RAISE   — min, max
+          ALL_IN  — amount (fixed, equals remaining stack)
+      properties:
+        type:
+          $ref: '#/components/schemas/ActionType'
+        amount:
+          type: integer
+          minimum: 0
+          description: Fixed amount (for CALL and ALL_IN).
+        min:
+          type: integer
+          minimum: 0
+          description: Minimum amount (for BET and RAISE).
+        max:
+          type: integer
+          minimum: 0
+          description: Maximum amount (for BET and RAISE).
+
+    ActionRequest:
+      type: object
+      required: [availableActions, timeToActMs]
+      additionalProperties: false
+      properties:
+        availableActions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionOption'
+          description: Actions available to the player with valid ranges/amounts.
+        timeToActMs:
+          type: integer
+          minimum: 0
+          description: Milliseconds the player has to submit their action.
+
+    Action:
+      type: object
+      required: [type]
+      additionalProperties: false
+      description: >-
+        A resolved action (what a player did, or what was forced on timeout).
+      properties:
+        type:
+          $ref: '#/components/schemas/ActionType'
+        amount:
+          type: integer
+          minimum: 0
+          description: Required for BET and RAISE. Ignored for FOLD, CHECK, CALL, ALL_IN.
+
+    # ── Event Schemas (discriminated union on "type") ─────────────────────────
+
+    Event:
+      oneOf:
+        - $ref: '#/components/schemas/HandStartEvent'
+        - $ref: '#/components/schemas/BlindsPostedEvent'
+        - $ref: '#/components/schemas/DealEvent'
+        - $ref: '#/components/schemas/FlopEvent'
+        - $ref: '#/components/schemas/TurnEvent'
+        - $ref: '#/components/schemas/RiverEvent'
+        - $ref: '#/components/schemas/PlayerActionEvent'
+        - $ref: '#/components/schemas/PlayerTimeoutEvent'
+        - $ref: '#/components/schemas/ShowdownEvent'
+        - $ref: '#/components/schemas/HandEndEvent'
+        - $ref: '#/components/schemas/PlayerRevealedEvent'
+        - $ref: '#/components/schemas/PlayerJoinedEvent'
+        - $ref: '#/components/schemas/PlayerLeftEvent'
+      discriminator: type
+
+    HandStartEvent:
+      type: object
+      required: [type, handNumber, dealerSeatIndex]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: HAND_START
+        handNumber:
+          type: integer
+          minimum: 1
+        dealerSeatIndex:
+          type: integer
+          minimum: 0
+
+    BlindsPostedEvent:
+      type: object
+      required: [type, smallBlind, bigBlind]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: BLINDS_POSTED
+        smallBlind:
+          type: object
+          required: [playerId, amount]
+          additionalProperties: false
+          properties:
+            playerId:
+              type: string
+              format: uuid
+            amount:
+              type: integer
+              minimum: 1
+        bigBlind:
+          type: object
+          required: [playerId, amount]
+          additionalProperties: false
+          properties:
+            playerId:
+              type: string
+              format: uuid
+            amount:
+              type: integer
+              minimum: 1
+
+    DealEvent:
+      type: object
+      required: [type]
+      additionalProperties: false
+      description: >-
+        Hole cards have been dealt. Players should check their holeCards
+        field in the accompanying GameState.
+      properties:
+        type:
+          type: string
+          const: DEAL
+
+    FlopEvent:
+      type: object
+      required: [type, cards]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: FLOP
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+          minItems: 3
+          maxItems: 3
+          description: The three flop cards.
+
+    TurnEvent:
+      type: object
+      required: [type, card]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: TURN
+        card:
+          $ref: '#/components/schemas/Card'
+          description: The turn card.
+
+    RiverEvent:
+      type: object
+      required: [type, card]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: RIVER
+        card:
+          $ref: '#/components/schemas/Card'
+          description: The river card.
+
+    PlayerActionEvent:
+      type: object
+      required: [type, playerId, action]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: PLAYER_ACTION
+        playerId:
+          type: string
+          format: uuid
+        action:
+          $ref: '#/components/schemas/Action'
+
+    PlayerTimeoutEvent:
+      type: object
+      required: [type, playerId, defaultAction]
+      additionalProperties: false
+      description: >-
+        Player ran out of time. Server applied the default action
+        (CHECK if possible, otherwise FOLD).
+      properties:
+        type:
+          type: string
+          const: PLAYER_TIMEOUT
+        playerId:
+          type: string
+          format: uuid
+        defaultAction:
+          $ref: '#/components/schemas/Action'
+
+    ShowdownResult:
+      type: object
+      required: [playerId, holeCards, handRank, handDescription]
+      additionalProperties: false
+      properties:
+        playerId:
+          type: string
+          format: uuid
+        holeCards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+          minItems: 2
+          maxItems: 2
+        handRank:
+          $ref: '#/components/schemas/HandRank'
+        handDescription:
+          type: string
+          description: >-
+            Human-readable description, e.g. "pair of aces", "straight to the king".
+
+    ShowdownEvent:
+      type: object
+      required: [type, results]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: SHOWDOWN
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShowdownResult'
+
+    Winner:
+      type: object
+      required: [playerId, amount, potIndex]
+      additionalProperties: false
+      properties:
+        playerId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          minimum: 0
+          description: Chips won from this pot.
+        potIndex:
+          type: integer
+          minimum: 0
+          description: Index into the GameState.pots array.
+
+    HandEndEvent:
+      type: object
+      required: [type, winners]
+      additionalProperties: false
+      description: >-
+        Hand is complete. Pot has been distributed. May fire without a preceding
+        SHOWDOWN event if all but one player folded.
+      properties:
+        type:
+          type: string
+          const: HAND_END
+        winners:
+          type: array
+          items:
+            $ref: '#/components/schemas/Winner'
+
+    PlayerRevealedEvent:
+      type: object
+      required: [type, playerId, holeCards]
+      additionalProperties: false
+      description: >-
+        A player voluntarily revealed their hole cards (typically at showdown).
+      properties:
+        type:
+          type: string
+          const: PLAYER_REVEALED
+        playerId:
+          type: string
+          format: uuid
+        holeCards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+          minItems: 2
+          maxItems: 2
+
+    PlayerJoinedEvent:
+      type: object
+      required: [type, playerId, displayName, seatIndex]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: PLAYER_JOINED
+        playerId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        seatIndex:
+          type: integer
+          minimum: 0
+
+    PlayerLeftEvent:
+      type: object
+      required: [type, playerId]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: PLAYER_LEFT
+        playerId:
+          type: string
+          format: uuid
+
+    # ── Message Payloads ──────────────────────────────────────────────────────
+
+    IdentifyPayload:
+      type: object
+      required: [displayName]
+      additionalProperties: false
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: Desired display name.
+        reconnectToken:
+          type: string
+          description: Token from a previous session to resume (crash recovery).
+
+    IdentifiedPayload:
+      type: object
+      required: [playerId, reconnectToken]
+      additionalProperties: false
+      properties:
+        playerId:
+          type: string
+          format: uuid
+          description: Assigned unique player ID.
+        reconnectToken:
+          type: string
+          description: Token to use for future reconnections.
+        currentGame:
+          $ref: '#/components/schemas/GameStateUpdatePayload'
+          description: >-
+            Present if the player was in an active game (reconnect scenario).
+            Contains the full current game state so the bot can resume.
+
+    JoinGamePayload:
+      type: object
+      required: [gameId]
+      additionalProperties: false
+      properties:
+        gameId:
+          type: string
+          format: uuid
+
+    PlayerActionPayload:
+      type: object
+      required: [handNumber, type]
+      additionalProperties: false
+      properties:
+        handNumber:
+          type: integer
+          description: Must match current hand number to prevent stale actions.
+        type:
+          $ref: '#/components/schemas/ActionType'
+        amount:
+          type: integer
+          minimum: 0
+          description: Required for BET and RAISE.
+
+    RevealCardsPayload:
+      type: object
+      required: [handNumber]
+      additionalProperties: false
+      properties:
+        handNumber:
+          type: integer
+          description: Must match current hand number.
+
+    ChatSendPayload:
+      type: object
+      required: [message]
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    GameListItem:
+      type: object
+      required:
+        - gameId
+        - name
+        - gameType
+        - playerCount
+        - maxPlayers
+        - smallBlindAmount
+        - bigBlindAmount
+        - status
+      additionalProperties: false
+      properties:
+        gameId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        gameType:
+          $ref: '#/components/schemas/GameType'
+        playerCount:
+          type: integer
+          minimum: 0
+        maxPlayers:
+          type: integer
+          minimum: 2
+        smallBlindAmount:
+          type: integer
+          minimum: 1
+        bigBlindAmount:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [waiting, in_progress]
+          description: Whether the game is waiting for players or already running.
+
+    GameListPayload:
+      type: object
+      required: [games]
+      additionalProperties: false
+      properties:
+        games:
+          type: array
+          items:
+            $ref: '#/components/schemas/GameListItem'
+
+    GameJoinedPayload:
+      type: object
+      required: [gameState]
+      additionalProperties: false
+      properties:
+        gameState:
+          $ref: '#/components/schemas/GameState'
+
+    GameStateUpdatePayload:
+      type: object
+      required: [gameState, event]
+      additionalProperties: false
+      description: |
+        The primary game message payload. Contains the complete state snapshot
+        after the event was applied, the event itself, and optionally an
+        ActionRequest if it is now this player's turn.
+      properties:
+        gameState:
+          $ref: '#/components/schemas/GameState'
+        event:
+          $ref: '#/components/schemas/Event'
+        actionRequest:
+          $ref: '#/components/schemas/ActionRequest'
+          description: Present only when it is this player's turn to act.
+
+    TimeWarningPayload:
+      type: object
+      required: [remainingMs]
+      additionalProperties: false
+      properties:
+        remainingMs:
+          type: integer
+          minimum: 0
+          description: Milliseconds remaining before action timeout.
+
+    Standing:
+      type: object
+      required: [playerId, displayName, finalStack, rank]
+      additionalProperties: false
+      properties:
+        playerId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        finalStack:
+          type: integer
+          minimum: 0
+        rank:
+          type: integer
+          minimum: 1
+          description: Final placement (1 = winner).
+
+    GameOverPayload:
+      type: object
+      required: [gameId, reason, standings]
+      additionalProperties: false
+      properties:
+        gameId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          enum: [completed, cancelled, insufficient_players]
+          description: Why the game ended.
+        standings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Standing'
+
+    ChatMessagePayload:
+      type: object
+      required: [playerId, displayName, message, timestamp]
+      additionalProperties: false
+      properties:
+        playerId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp.
+
+    ErrorPayload:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+          description: Human-readable error description.
+        details:
+          type: object
+          description: Additional context about the error (schema varies by error code).
