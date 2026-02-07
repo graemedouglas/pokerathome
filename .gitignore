@@ -7,3 +7,4 @@ dist/
 .env
 __pycache__
 schema/generated/
+e2e/screenshots/

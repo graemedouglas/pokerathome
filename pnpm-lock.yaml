@@ -24,6 +24,12 @@ importers:
         specifier: ^6.1.0
         version: 6.4.1(@types/node@25.2.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.2)
 
+  e2e:
+    devDependencies:
+      playwright-core:
+        specifier: ^1.58.2
+        version: 1.58.2
+
   schema:
     dependencies:
       zod:
@@ -5945,6 +5951,11 @@ packages:
   pkg-dir@4.2.0:
     resolution: {integrity: sha512-HRDzbaKjC+AOWVXxAU/x54COGeIv9eb+6CkDSQoNTt4XyWoIJvuPsXizxu/Fr23EiekbtZwmh1IcIG/l/a10GQ==}
     engines: {node: '>=8'}
+
+  playwright-core@1.58.2:
+    resolution: {integrity: sha512-yZkEtftgwS8CsfYo7nm0KE8jsvm6i/PTgVtB8DL726wNf6H2IMsDuxCpJj59KDaxCtSnrWan2AeDqM7JBaultg==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   pokersolver@2.1.4:
     resolution: {integrity: sha512-vmgZS+K8H8r1RePQykFM5YyvlKo1v3xVec8FMBjg9N6mR2Tj/n/X415w+lG67FWbrk71D/CADmKFinDgaQlAsw==}
@@ -15027,6 +15038,8 @@ snapshots:
   pkg-dir@4.2.0:
     dependencies:
       find-up: 4.1.0
+
+  playwright-core@1.58.2: {}
 
   pokersolver@2.1.4: {}
 

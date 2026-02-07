@@ -7,7 +7,11 @@
     "dev:ui": "pnpm --filter @pokerathome/ui dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
-    "test": "pnpm --filter @pokerathome/server test"
+    "test": "pnpm --filter @pokerathome/server test",
+    "e2e": "pnpm --filter @pokerathome/e2e test",
+    "reset": "bash scripts/reset.sh",
+    "reset:start": "bash scripts/reset.sh --start",
+    "kill": "bash scripts/kill-dev.sh"
   },
   "devDependencies": {
     "prettier": "^3.4.0",

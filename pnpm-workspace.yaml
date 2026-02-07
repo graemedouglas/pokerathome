@@ -3,6 +3,7 @@ packages:
   - server
   - admin
   - ui
+  - e2e
 
 ignoredBuiltDependencies:
   - "@asyncapi/cli"
