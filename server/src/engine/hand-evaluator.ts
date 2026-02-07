@@ -2,7 +2,9 @@
  * Poker hand evaluation. Thin wrapper around pokersolver.
  */
 
-import { Hand } from 'pokersolver';
+import pokersolver from 'pokersolver';
+import type { Hand as HandType } from 'pokersolver';
+const { Hand } = pokersolver;
 import type { HandRank, ShowdownResult } from '@pokerathome/schema';
 
 const RANK_MAP: Record<number, HandRank> = {
@@ -20,7 +22,7 @@ const RANK_MAP: Record<number, HandRank> = {
 
 export interface EvaluatedHand {
   playerId: string;
-  hand: Hand;
+  hand: HandType;
   handRank: HandRank;
   handDescription: string;
   holeCards: [string, string];
