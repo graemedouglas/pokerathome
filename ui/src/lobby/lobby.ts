@@ -217,7 +217,21 @@ export class Lobby {
       }
 
       case 'error': {
-        const payload = msg.payload as { message: string }
+        const payload = msg.payload as { code?: string; message: string }
+
+        // Stale reconnect token (e.g. after a DB reset) — clear it and retry as new player
+        if (this.currentScreen === 'connect' && payload.message?.includes('reconnect token')) {
+          WsClient.clearReconnectToken()
+          const name = localStorage.getItem('pokerathome_displayName') ?? ''
+          if (name) {
+            this.ws.send('identify', { displayName: name })
+            return
+          }
+          // Fall through to show connect screen without the token
+          this.showConnectScreen()
+          return
+        }
+
         const errorEl = this.overlay.querySelector('.lobby-error') as HTMLElement | null
         if (errorEl) {
           errorEl.textContent = payload.message
