@@ -1,0 +1,3 @@
+[DEBUG] [vite] connecting...
+[DEBUG] [vite] connected.
+[WARNING] No available adapters.

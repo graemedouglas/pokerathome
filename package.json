@@ -1,0 +1,27 @@
+{
+  "name": "pokerathome",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "capture": "tsx dev/capture.ts",
+    "play": "tsx dev/play.ts"
+  },
+  "dependencies": {
+    "pixi.js": "^8.6.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
