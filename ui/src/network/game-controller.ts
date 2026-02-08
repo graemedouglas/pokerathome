@@ -22,7 +22,7 @@ export type GameControllerEvent =
 export type GameControllerEventHandler = (event: GameControllerEvent) => void
 
 export class GameController {
-  private renderer: GameRenderer
+  private renderer: GameRenderer | null = null
   private ws: WsClient
   private isSpectator: boolean
   private myPlayerId = ''
@@ -36,8 +36,11 @@ export class GameController {
   private started = false
   private pendingActionRequest = false
 
-  constructor(renderer: GameRenderer, ws: WsClient, isSpectator = false) {
-    this.renderer = renderer
+  // Message processing chain — ensures sequential handling
+  private chain: Promise<void> = Promise.resolve()
+  private buffered: ServerMessage[] = []
+
+  constructor(ws: WsClient, isSpectator = false) {
     this.ws = ws
     this.isSpectator = isSpectator
   }
@@ -57,8 +60,37 @@ export class GameController {
     for (const handler of this.eventHandlers) handler(event)
   }
 
+  /** Start listening for WS messages. Buffers them until a renderer is attached. */
   start(): void {
-    this.ws.onMessage((msg) => this.handleMessage(msg))
+    this.ws.onMessage((msg) => {
+      if (!this.renderer) {
+        this.buffered.push(msg)
+        return
+      }
+      this.chain = this.chain
+        .then(() => this.handleMessage(msg))
+        .catch(err => console.error('[GameController] message error:', err))
+    })
+  }
+
+  /** Attach the renderer and flush any buffered messages. */
+  attachRenderer(renderer: GameRenderer, initialState?: GameStateUpdatePayload): void {
+    this.renderer = renderer
+
+    // Process initial state first (if any)
+    if (initialState) {
+      this.chain = this.chain
+        .then(() => this.handleGameState(initialState))
+        .catch(err => console.error('[GameController] initial state error:', err))
+    }
+
+    // Then drain buffered messages in order
+    for (const msg of this.buffered) {
+      this.chain = this.chain
+        .then(() => this.handleMessage(msg))
+        .catch(err => console.error('[GameController] buffered message error:', err))
+    }
+    this.buffered = []
   }
 
   private async handleMessage(msg: ServerMessage): Promise<void> {
@@ -74,7 +106,7 @@ export class GameController {
         break
       case 'chatMessage': {
         const chat = msg.payload as { playerId: string; displayName: string; message: string; timestamp: string }
-        this.renderer.addChatMessage({
+        this.renderer!.addChatMessage({
           displayName: chat.displayName,
           message: chat.message,
           timestamp: chat.timestamp,
@@ -128,8 +160,8 @@ export class GameController {
       const available = adaptActionRequest(actionRequest)
 
       try {
-        const uiAction = await this.renderer.waitForHumanAction(available, serverState.pot)
-        const serverAction = adaptPlayerAction(uiAction, this.currentHandNumber)
+        const uiAction = await this.renderer!.waitForHumanAction(available, serverState.pot)
+        const serverAction = adaptPlayerAction(uiAction, this.currentHandNumber, available)
         this.ws.send('playerAction', serverAction as Record<string, unknown>)
       } finally {
         this.pendingActionRequest = false
@@ -142,6 +174,7 @@ export class GameController {
     serverState: ServerGameState,
     uiState: GameState,
   ): Promise<void> {
+    const r = this.renderer!
     switch (event.type) {
       case 'HAND_START': {
         if (!this.started) {
@@ -149,48 +182,48 @@ export class GameController {
           this.emit({ type: 'gameStarted' })
         }
         this.showdownResults.clear()
-        this.renderer.resetForNewHand()
-        this.renderer.addLog(`--- Hand #${event.handNumber} ---`)
-        this.renderer.update(uiState)
+        r.resetForNewHand()
+        r.addLog(`--- Hand #${event.handNumber} ---`)
+        r.update(uiState)
         break
       }
 
       case 'BLINDS_POSTED': {
         const sbName = serverState.players.find(p => p.id === event.smallBlind.playerId)?.displayName ?? '?'
         const bbName = serverState.players.find(p => p.id === event.bigBlind.playerId)?.displayName ?? '?'
-        this.renderer.addLog(`${sbName} posts SB $${event.smallBlind.amount}`)
-        this.renderer.addLog(`${bbName} posts BB $${event.bigBlind.amount}`)
-        this.renderer.update(uiState)
+        r.addLog(`${sbName} posts SB $${event.smallBlind.amount}`)
+        r.addLog(`${bbName} posts BB $${event.bigBlind.amount}`)
+        r.update(uiState)
         break
       }
 
       case 'DEAL': {
-        await this.renderer.animatePhaseChange('preflop')
-        this.renderer.update(uiState)
+        await r.animatePhaseChange('preflop')
+        r.update(uiState)
         break
       }
 
       case 'FLOP': {
-        await this.renderer.animatePhaseChange('flop')
+        await r.animatePhaseChange('flop')
         const flopCards = event.cards.map(adaptCard)
-        await this.renderer.animateCommunityReveal(flopCards, 0)
-        this.renderer.update(uiState)
+        await r.animateCommunityReveal(flopCards, 0)
+        r.update(uiState)
         break
       }
 
       case 'TURN': {
-        await this.renderer.animatePhaseChange('turn')
+        await r.animatePhaseChange('turn')
         const turnCard = adaptCard(event.card)
-        await this.renderer.animateCommunityReveal([turnCard], 3)
-        this.renderer.update(uiState)
+        await r.animateCommunityReveal([turnCard], 3)
+        r.update(uiState)
         break
       }
 
       case 'RIVER': {
-        await this.renderer.animatePhaseChange('river')
+        await r.animatePhaseChange('river')
         const riverCard = adaptCard(event.card)
-        await this.renderer.animateCommunityReveal([riverCard], 4)
-        this.renderer.update(uiState)
+        await r.animateCommunityReveal([riverCard], 4)
+        r.update(uiState)
         break
       }
 
@@ -199,62 +232,59 @@ export class GameController {
         if (player) {
           const actionStr = event.action.type.toLowerCase()
           const amountStr = event.action.amount ? ` $${event.action.amount}` : ''
-          this.renderer.addLog(`${player.displayName} ${actionStr}s${amountStr}`)
+          r.addLog(`${player.displayName} ${actionStr}s${amountStr}`)
         }
-        this.renderer.update(uiState)
+        r.update(uiState)
         break
       }
 
       case 'PLAYER_TIMEOUT': {
         const player = serverState.players.find(p => p.id === event.playerId)
         if (player) {
-          this.renderer.addLog(`${player.displayName} timed out`)
+          r.addLog(`${player.displayName} timed out`)
         }
-        this.renderer.update(uiState)
+        r.update(uiState)
         break
       }
 
       case 'SHOWDOWN': {
-        await this.renderer.animatePhaseChange('showdown')
-        this.renderer.update(uiState)
+        await r.animatePhaseChange('showdown')
+        r.update(uiState)
         break
       }
 
       case 'HAND_END': {
-        this.renderer.update(uiState)
+        r.update(uiState)
         const winnerIndices = uiState.winners.map(w => w.playerIndex)
         if (winnerIndices.length > 0) {
           for (const w of uiState.winners) {
             const player = uiState.players.find(p => p.seatIndex === w.playerIndex)
             if (player) {
-              this.renderer.addLog(`${player.name} wins $${w.amount} - ${w.handDescription}`)
+              r.addLog(`${player.name} wins $${w.amount} - ${w.handDescription}`)
             }
           }
-          await this.renderer.animateWinners(winnerIndices)
+          await r.animateWinners(winnerIndices)
         }
         break
       }
 
       case 'PLAYER_JOINED': {
-        this.renderer.addLog(`${event.displayName} joined`)
-        this.renderer.update(uiState)
+        r.addLog(`${event.displayName} joined`)
+        r.update(uiState)
         break
       }
 
       case 'PLAYER_LEFT': {
         const player = serverState.players.find(p => p.id === event.playerId)
-        this.renderer.addLog(`${player?.displayName ?? 'Player'} left`)
-        this.renderer.update(uiState)
+        r.addLog(`${player?.displayName ?? 'Player'} left`)
+        r.update(uiState)
         break
       }
 
       default:
-        this.renderer.update(uiState)
+        r.update(uiState)
         break
     }
   }
 
-  handleInitialGameState(payload: GameStateUpdatePayload): void {
-    this.handleGameState(payload)
-  }
 }

@@ -46,6 +46,7 @@ export class GameRenderer {
   private winnerText!: Text;
   private handInfoText!: Text;
   private phaseText!: Text;
+  private statusText!: Text;
 
   private humanActionResolve: ((action: PlayerAction) => void) | null = null;
 
@@ -130,6 +131,21 @@ export class GameRenderer {
     this.phaseText.x = TABLE_CENTER_X;
     this.phaseText.y = TABLE_CENTER_Y - 100;
     this.uiLayer.addChild(this.phaseText);
+
+    // Status indicator — shows whose turn it is / what's happening
+    this.statusText = new Text({
+      text: '',
+      style: {
+        fontSize: 12,
+        fill: 0x94a3b8,
+        fontFamily: 'Arial',
+        fontStyle: 'italic',
+      },
+    });
+    this.statusText.anchor.set(0.5);
+    this.statusText.x = TABLE_CENTER_X;
+    this.statusText.y = TABLE_CENTER_Y - 82;
+    this.uiLayer.addChild(this.statusText);
 
     // Winner banner
     this.winnerBanner = new Container();
@@ -294,6 +310,18 @@ export class GameRenderer {
     this.potDisplay.update(state.pot);
     this.handInfoText.text = state.handNumber > 0 ? `Hand #${state.handNumber}` : '';
     this.phaseText.text = PHASE_LABELS[state.phase] || '';
+
+    // Status line — context-aware feedback
+    const currentPlayer = state.players.find(p => p.isCurrent);
+    if (currentPlayer && !currentPlayer.isHuman) {
+      this.statusText.text = `Waiting for ${currentPlayer.name}...`;
+      this.statusText.style.fill = 0x94a3b8;
+    } else if (state.phase === 'waiting') {
+      this.statusText.text = 'Waiting for game to start...';
+      this.statusText.style.fill = 0x94a3b8;
+    } else {
+      this.statusText.text = '';
+    }
 
     if (state.phase === 'showdown' && state.winners.length > 0) {
       const lines = state.winners.map(w => {

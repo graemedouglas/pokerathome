@@ -19,6 +19,10 @@ export class CommunityCards extends Container {
   }
 
   update(communityCards: Card[]): void {
+    // Skip incremental updates while animateReveal is in progress —
+    // the reveal already creates the sprites, so update() would duplicate them
+    if (this.isAnimating) return
+
     // Reset if fewer cards (new hand)
     if (communityCards.length < this.cards.length) {
       // Fade out old cards

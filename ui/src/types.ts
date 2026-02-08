@@ -45,6 +45,8 @@ export interface AvailableActions {
   canRaise: boolean
   minRaise: number
   maxRaise: number
+  allInAmount: number
+  raiseType: 'BET' | 'RAISE' | null
 }
 
 export interface GameState {

@@ -8,6 +8,7 @@ import {
   startHand,
   processAction,
   toClientGameState,
+  buildGameStatePayload,
   type EngineState,
   type EnginePlayer,
 } from '../src/engine/game';
@@ -571,5 +572,285 @@ describe('Rigged deck', () => {
     // Should still deal cards
     const p1 = dealState.players.find(p => p.id === 'player-1')!;
     expect(p1.holeCards).toHaveLength(2);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Regression tests — specific bugs that were fixed
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('All-in action handling', () => {
+  function createHeadsUpGame(): EngineState {
+    let state = createInitialState({
+      gameId: 'test-allin',
+      gameName: 'All-in Test',
+      gameType: 'cash',
+      smallBlindAmount: 5,
+      bigBlindAmount: 10,
+      maxPlayers: 6,
+      startingStack: 1000,
+    });
+    const p1 = addPlayer(state, 'player-1', 'Alice');
+    state = p1.state;
+    const p2 = addPlayer(state, 'player-2', 'Bob');
+    state = p2.state;
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    return state;
+  }
+
+  test('ALL_IN sets player stack to 0 and marks isAllIn', () => {
+    // Use 3-player game so ALL_IN doesn't immediately complete the round
+    const state = createTestGame();
+    const transitions = startHand(state);
+    let current = transitions[transitions.length - 1].state;
+
+    const activeId = current.activePlayerId!;
+    const stackBefore = current.players.find(p => p.id === activeId)!.stack;
+    expect(stackBefore).toBeGreaterThan(0);
+
+    const actionTransitions = processAction(current, activeId, 'ALL_IN');
+    // Check the first transition (PLAYER_ACTION) — not the last, since
+    // round completion may advance stages and alter stacks via winnings
+    const afterAction = actionTransitions[0].state;
+    const player = afterAction.players.find(p => p.id === activeId)!;
+    expect(player.stack).toBe(0);
+    expect(player.isAllIn).toBe(true);
+  });
+
+  test('ALL_IN is available when player cannot afford minimum raise', () => {
+    // Give player-1 a small stack that can't cover call + min raise
+    let state = createInitialState({
+      gameId: 'test-short',
+      gameName: 'Short Stack',
+      gameType: 'cash',
+      smallBlindAmount: 50,
+      bigBlindAmount: 100,
+      maxPlayers: 6,
+      startingStack: 1000,
+    });
+    const p1 = addPlayer(state, 'player-1', 'Alice');
+    state = p1.state;
+    const p2 = addPlayer(state, 'player-2', 'Bob');
+    state = p2.state;
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+
+    // Start with a rigged deck. Player-1 is dealer/SB in heads-up.
+    const riggedDeck = [
+      'Ah', 'As', 'Kh', 'Ks',
+      '2c', '3c', '4c', '5c', '6c',
+      ...createDeck().filter(c => !['Ah', 'As', 'Kh', 'Ks', '2c', '3c', '4c', '5c', '6c'].includes(c)),
+    ];
+    const transitions = startHand(state, riggedDeck);
+    let current = transitions[transitions.length - 1].state;
+
+    // Player-1 (dealer/SB in heads-up, first to act pre-flop) raises big
+    const p1Id = current.activePlayerId!;
+    let actionTransitions = processAction(current, p1Id, 'RAISE', 900);
+    current = actionTransitions[actionTransitions.length - 1].state;
+
+    // Player-2 (BB) now faces a 900 raise. They have 900 left after posting 100 BB.
+    // callAmount = 900 (currentBet) - 100 (their bet) = 800
+    // minRaise = 800 (call) + 800 (lastRaiseSize) = 1600 but stack is only 900
+    // RAISE should NOT be available (minRaise > stack)
+    // ALL_IN should be available
+    const p2Id = current.activePlayerId!;
+    expect(p2Id).not.toBe(p1Id);
+
+    const actions = getAvailableActions(current, p2Id);
+    const types = actions.map(a => a.type);
+    expect(types).toContain('ALL_IN');
+    expect(types).toContain('FOLD');
+    // CALL should be available since 800 <= 900
+    expect(types).toContain('CALL');
+    // RAISE should NOT be available (can't afford min raise)
+    expect(types).not.toContain('RAISE');
+
+    // Sending ALL_IN should succeed
+    const error = validateAction(current, p2Id, 'ALL_IN');
+    expect(error).toBeNull();
+  });
+
+  test('ALL_IN loses entire stack when player loses the hand', () => {
+    let state = createInitialState({
+      gameId: 'test-allin-lose',
+      gameName: 'All-in Lose',
+      gameType: 'cash',
+      smallBlindAmount: 5,
+      bigBlindAmount: 10,
+      maxPlayers: 6,
+      startingStack: 1000,
+    });
+    const p1 = addPlayer(state, 'player-1', 'Alice');
+    state = p1.state;
+    const p2 = addPlayer(state, 'player-2', 'Bob');
+    state = p2.state;
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+
+    // Rig deck so player-1 (BB seat 0) wins decisively.
+    // Heads-up: dealer advances from 0 to seat 1 (player-2).
+    // SB = dealer = player-2, BB = player-1.
+    // Deal order after blinds: player-1 first, player-2 second.
+    const riggedDeck = [
+      'Ah', 'As',  // player-1 hole cards (aces)
+      '7c', '2d',  // player-2 hole cards (junk)
+      '8s', '9c', 'Td',  // flop — no help for player-2
+      '4h',  // turn
+      '3s',  // river
+      ...createDeck().filter(c =>
+        !['Ah', 'As', '7c', '2d', '8s', '9c', 'Td', '4h', '3s'].includes(c)
+      ),
+    ];
+
+    const transitions = startHand(state, riggedDeck);
+    let current = transitions[transitions.length - 1].state;
+
+    // Both players go all-in
+    const firstId = current.activePlayerId!;
+    let actionTransitions = processAction(current, firstId, 'ALL_IN');
+    current = actionTransitions[actionTransitions.length - 1].state;
+
+    if (current.activePlayerId) {
+      actionTransitions = processAction(current, current.activePlayerId, 'ALL_IN');
+      current = actionTransitions[actionTransitions.length - 1].state;
+    }
+
+    expect(current.handInProgress).toBe(false);
+
+    // Chips are conserved
+    const final1 = current.players.find(p => p.id === 'player-1')!;
+    const final2 = current.players.find(p => p.id === 'player-2')!;
+    expect(final1.stack + final2.stack).toBe(2000);
+
+    // player-1 (AA) should beat player-2 (72o) on this board
+    expect(final1.stack).toBe(2000);
+    expect(final2.stack).toBe(0);
+  });
+
+  test('RAISE is available alongside ALL_IN with correct min/max', () => {
+    const state = createTestGame();
+    const transitions = startHand(state);
+    const dealState = transitions[transitions.length - 1].state;
+    const activeId = dealState.activePlayerId!;
+
+    const actions = getAvailableActions(dealState, activeId);
+    const raise = actions.find(a => a.type === 'RAISE');
+    const allIn = actions.find(a => a.type === 'ALL_IN');
+
+    expect(raise).toBeDefined();
+    expect(allIn).toBeDefined();
+
+    // RAISE min should be call + last raise, max should be full stack
+    // Pre-flop: call=10 (BB), lastRaiseSize=10 (BB), so min raise=20
+    expect(raise!.min).toBe(20);
+    expect(raise!.max).toBe(1000); // Full stack
+
+    // ALL_IN amount should be the full stack
+    expect(allIn!.amount).toBe(1000);
+
+    // Both should be independently valid
+    expect(validateAction(dealState, activeId, 'RAISE', 20)).toBeNull();
+    expect(validateAction(dealState, activeId, 'ALL_IN')).toBeNull();
+  });
+});
+
+describe('Action request targeting', () => {
+  test('actionRequest is only sent to the active player', () => {
+    const state = createTestGame();
+    const transitions = startHand(state);
+    const dealState = transitions[transitions.length - 1].state;
+    const activeId = dealState.activePlayerId!;
+    const otherIds = dealState.players
+      .filter(p => p.id !== activeId && p.role === 'player')
+      .map(p => p.id);
+
+    // Active player should get actionRequest
+    const activePayload = buildGameStatePayload(
+      dealState, { type: 'DEAL' }, activeId, 30000
+    );
+    expect(activePayload.actionRequest).toBeDefined();
+    expect(activePayload.actionRequest!.availableActions.length).toBeGreaterThan(0);
+
+    // Other players should NOT get actionRequest
+    for (const otherId of otherIds) {
+      const otherPayload = buildGameStatePayload(
+        dealState, { type: 'DEAL' }, otherId, 30000
+      );
+      expect(otherPayload.actionRequest).toBeUndefined();
+    }
+  });
+
+  test('actionRequest is not sent when activePlayerId is null', () => {
+    const state = createTestGame();
+    const transitions = startHand(state);
+    // HAND_START transition has activePlayerId = null
+    const handStartState = transitions[0].state;
+    expect(handStartState.activePlayerId).toBeNull();
+
+    const payload = buildGameStatePayload(
+      handStartState, { type: 'HAND_START', handNumber: 1, dealerSeatIndex: 0 },
+      'player-1', 30000
+    );
+    expect(payload.actionRequest).toBeUndefined();
+  });
+});
+
+describe('Post-flop betting', () => {
+  test('BET is available post-flop when no one has bet', () => {
+    const state = createTestGame();
+    const transitions = startHand(state);
+    let current = transitions[transitions.length - 1].state;
+
+    // Play pre-flop: everyone calls/checks to get to flop
+    while (current.stage === 'PRE_FLOP' && current.activePlayerId) {
+      const activeId = current.activePlayerId;
+      const actions = getAvailableActions(current, activeId);
+      const canCheck = actions.some(a => a.type === 'CHECK');
+      const actionType = canCheck ? 'CHECK' : 'CALL';
+      const actionTransitions = processAction(current, activeId, actionType);
+      current = actionTransitions[actionTransitions.length - 1].state;
+    }
+
+    // Should be on flop now
+    expect(current.stage).toBe('FLOP');
+    expect(current.activePlayerId).not.toBeNull();
+
+    // First to act post-flop should have BET (not RAISE), since no bet exists
+    const actions = getAvailableActions(current, current.activePlayerId!);
+    const types = actions.map(a => a.type);
+    expect(types).toContain('BET');
+    expect(types).toContain('CHECK');
+    expect(types).not.toContain('RAISE'); // No bet to raise above
+    expect(types).not.toContain('CALL'); // Nothing to call
+  });
+
+  test('BET action is valid post-flop', () => {
+    const state = createTestGame();
+    const transitions = startHand(state);
+    let current = transitions[transitions.length - 1].state;
+
+    while (current.stage === 'PRE_FLOP' && current.activePlayerId) {
+      const activeId = current.activePlayerId;
+      const actions = getAvailableActions(current, activeId);
+      const canCheck = actions.some(a => a.type === 'CHECK');
+      const actionTransitions = processAction(current, activeId, canCheck ? 'CHECK' : 'CALL');
+      current = actionTransitions[actionTransitions.length - 1].state;
+    }
+
+    expect(current.stage).toBe('FLOP');
+    const activeId = current.activePlayerId!;
+    const actions = getAvailableActions(current, activeId);
+    const bet = actions.find(a => a.type === 'BET');
+    expect(bet).toBeDefined();
+
+    // BET with min amount should be valid
+    const error = validateAction(current, activeId, 'BET', bet!.min);
+    expect(error).toBeNull();
+
+    // Sending RAISE instead of BET should be INVALID
+    const raiseError = validateAction(current, activeId, 'RAISE', bet!.min);
+    expect(raiseError).not.toBeNull();
   });
 });

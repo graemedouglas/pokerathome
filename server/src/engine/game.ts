@@ -664,10 +664,12 @@ function isBettingRoundComplete(state: EngineState): boolean {
     (p) => !p.folded && !p.isAllIn && p.role === 'player'
   );
 
-  // If 0 or 1 players can bet, round is over
-  if (activeBettors.length <= 1) return true;
+  // If nobody can bet, round is over (everyone is folded or all-in)
+  if (activeBettors.length === 0) return true;
 
-  // All active bettors must have acted and bets must be equalized
+  // All active bettors must have acted and bets must be equalized.
+  // This correctly handles the case where someone goes all-in and the
+  // remaining player(s) still need to respond (call/fold/raise).
   const allActed = activeBettors.every((p) => state.actedThisRound.includes(p.id));
   const betsEqual = activeBettors.every((p) => p.bet === state.currentBet);
 

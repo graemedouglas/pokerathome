@@ -104,6 +104,8 @@ export function adaptActionRequest(req: ServerActionRequest): AvailableActions {
   let canRaise = false
   let minRaise = 0
   let maxRaise = 0
+  let allInAmount = 0
+  let raiseType: 'BET' | 'RAISE' | null = null
 
   for (const opt of req.availableActions) {
     switch (opt.type) {
@@ -118,44 +120,63 @@ export function adaptActionRequest(req: ServerActionRequest): AvailableActions {
         callAmount = opt.amount ?? 0
         break
       case 'BET':
+        canRaise = true
+        raiseType = 'BET'
+        minRaise = opt.min ?? 0
+        maxRaise = opt.max ?? 0
+        break
       case 'RAISE':
         canRaise = true
+        raiseType = 'RAISE'
         minRaise = opt.min ?? 0
         maxRaise = opt.max ?? 0
         break
       case 'ALL_IN':
-        canRaise = true
-        minRaise = opt.amount ?? 0
-        maxRaise = opt.amount ?? 0
+        allInAmount = opt.amount ?? 0
+        // Only use ALL_IN for the raise slider when no BET/RAISE is available
+        // (e.g. player can't afford the min raise but can still shove)
+        if (!canRaise) {
+          canRaise = true
+          minRaise = allInAmount
+          maxRaise = allInAmount
+        }
         break
     }
   }
 
-  return { canFold, canCheck, canCall, callAmount, canRaise, minRaise, maxRaise }
+  return { canFold, canCheck, canCall, callAmount, canRaise, minRaise, maxRaise, allInAmount, raiseType }
 }
 
 export function adaptPlayerAction(
   uiAction: PlayerAction,
   handNumber: number,
+  available: AvailableActions,
 ): { handNumber: number; type: string; amount?: number } {
+  // For raise/bet actions, determine the correct server action type.
+  // The UI merges BET/RAISE/ALL_IN into a single slider — we need to
+  // reverse-map to the right server type based on what's actually available.
+  if (uiAction.type === 'raise') {
+    if (available.allInAmount > 0 && uiAction.amount === available.allInAmount) {
+      return { handNumber, type: 'ALL_IN' }
+    }
+    return {
+      handNumber,
+      type: available.raiseType ?? 'RAISE',
+      amount: uiAction.amount,
+    }
+  }
+
   const TYPE_MAP: Record<string, string> = {
     fold: 'FOLD',
     check: 'CHECK',
     call: 'CALL',
-    raise: 'RAISE',
     allin: 'ALL_IN',
   }
 
-  const result: { handNumber: number; type: string; amount?: number } = {
+  return {
     handNumber,
     type: TYPE_MAP[uiAction.type] ?? 'FOLD',
   }
-
-  if (uiAction.type === 'raise' && uiAction.amount != null) {
-    result.amount = uiAction.amount
-  }
-
-  return result
 }
 
 export function extractBlindPlayers(event: ServerEvent): { sbPlayerId?: string; bbPlayerId?: string } {
