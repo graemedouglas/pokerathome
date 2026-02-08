@@ -9,6 +9,11 @@ import { createGame, getGameById, listGames, deleteGame, getGamePlayers, getGame
 import type { GameManager } from './game-manager.js';
 import type { SessionManager } from './ws/session.js';
 
+const AddBotBody = z.object({
+  botType: z.enum(['calling-station', 'tag-bot']),
+  displayName: z.string().min(1).max(64).optional(),
+});
+
 const CreateGameBody = z.object({
   name: z.string().min(1).max(64),
   gameType: z.enum(['cash', 'tournament']).default('cash'),
@@ -78,6 +83,35 @@ export function registerAdminRoutes(
 
     logger.info({ gameId: request.params.id }, 'Game force-started via admin API');
     return reply.send({ ok: true });
+  });
+
+  // Add a bot to a game
+  app.post<{ Params: { id: string } }>('/api/games/:id/add-bot', async (request, reply) => {
+    const game = getGameById(request.params.id);
+    if (!game) return reply.status(404).send({ error: 'Game not found' });
+    if (game.status !== 'waiting') {
+      return reply.status(400).send({ error: 'Can only add bots to waiting games' });
+    }
+
+    const body = AddBotBody.safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: body.error.issues.map((i: { message: string }) => i.message).join('; ') });
+    }
+
+    const currentCount = getGamePlayerCount(request.params.id);
+    if (currentCount >= game.max_players) {
+      return reply.status(400).send({ error: 'Game is full' });
+    }
+
+    const displayName = body.data.displayName ?? `Bot (${body.data.botType})`;
+    const result = await gameManager.addBot(request.params.id, body.data.botType, displayName);
+
+    if (!result.ok) {
+      return reply.status(500).send({ error: result.error });
+    }
+
+    logger.info({ gameId: request.params.id, botType: body.data.botType, displayName }, 'Bot added via admin API');
+    return reply.status(201).send({ ok: true, displayName });
   });
 
   // Delete (cancel) a game

@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "pnpm --filter @pokerathome/server dev",
     "dev:ui": "pnpm --filter @pokerathome/ui dev",
+    "dev:admin": "pnpm --filter @pokerathome/admin dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm --filter @pokerathome/server test",
+    "test:bots": "pnpm --filter @pokerathome/bots test",
     "e2e": "pnpm --filter @pokerathome/e2e test",
     "reset": "bash scripts/reset.sh",
     "reset:start": "bash scripts/reset.sh --start",

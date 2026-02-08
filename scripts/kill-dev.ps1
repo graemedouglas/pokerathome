@@ -1,5 +1,5 @@
 #
-# Kill running dev server (port 3000) and UI dev server (port 5173).
+# Kill running dev server (port 3000), admin dev server (port 3001), and UI dev server (port 5173).
 #
 
 function Stop-DevPort {
@@ -28,6 +28,7 @@ function Stop-DevPort {
 }
 
 Stop-DevPort -Port 3000 -Name "game server"
+Stop-DevPort -Port 3001 -Name "admin dev server"
 Stop-DevPort -Port 5173 -Name "UI dev server"
 
 Write-Host "Done."

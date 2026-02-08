@@ -55,6 +55,11 @@ if [ "${1:-}" = "--start" ]; then
   UI_PID=$!
   echo "UI starting (pid $UI_PID)..."
 
+  # Start admin in background
+  pnpm dev:admin &
+  ADMIN_PID=$!
+  echo "Admin starting (pid $ADMIN_PID)..."
+
   # Wait for server to be ready
   echo "Waiting for server health check..."
   for i in $(seq 1 15); do
@@ -81,6 +86,7 @@ if [ "${1:-}" = "--start" ]; then
   echo "=== Ready ==="
   echo "  Server:  http://localhost:3000"
   echo "  UI:      http://localhost:5173"
+  echo "  Admin:   http://localhost:3001"
   echo "  API:     http://localhost:3000/api/games"
   echo ""
   echo "Press Ctrl+C to stop all servers"

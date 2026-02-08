@@ -331,3 +331,137 @@ describe('Action validator', () => {
     expect(error!.code).toBe('INVALID_AMOUNT');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Rigged deck
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Rigged deck', () => {
+  function createHeadsUpGame(): EngineState {
+    let state = createInitialState({
+      gameId: 'test-rigged',
+      gameName: 'Rigged Test',
+      gameType: 'cash',
+      smallBlindAmount: 5,
+      bigBlindAmount: 10,
+      maxPlayers: 6,
+      startingStack: 1000,
+    });
+    const p1 = addPlayer(state, 'player-1', 'Alice');
+    state = p1.state;
+    const p2 = addPlayer(state, 'player-2', 'Bob');
+    state = p2.state;
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    return state;
+  }
+
+  test('startHand uses deckOverride when provided', () => {
+    const state = createHeadsUpGame();
+
+    // Rig the deck: player-1 gets AA, player-2 gets KK
+    // Heads-up: dealer=player-1 (seat 0), SB=player-1, BB=player-2
+    // Deal order: seat 0 (player-1) then seat 1 (player-2)
+    const riggedDeck = [
+      'Ah', 'As',  // player-1 hole cards
+      'Kh', 'Ks',  // player-2 hole cards
+      '2c', '3c', '4c',  // flop
+      '5c',  // turn
+      '6c',  // river
+      // Pad rest with arbitrary cards
+      ...createDeck().filter(c => !['Ah', 'As', 'Kh', 'Ks', '2c', '3c', '4c', '5c', '6c'].includes(c)),
+    ];
+
+    const transitions = startHand(state, riggedDeck);
+    const dealState = transitions[transitions.length - 1].state;
+
+    // Verify player-1 got AA
+    const p1 = dealState.players.find(p => p.id === 'player-1')!;
+    expect(p1.holeCards).toEqual(['Ah', 'As']);
+
+    // Verify player-2 got KK
+    const p2 = dealState.players.find(p => p.id === 'player-2')!;
+    expect(p2.holeCards).toEqual(['Kh', 'Ks']);
+  });
+
+  test('rigged deck deals correct community cards', () => {
+    const state = createHeadsUpGame();
+
+    const riggedDeck = [
+      'Th', 'Jh',  // player-1
+      '2c', '3d',  // player-2
+      'Ah', 'Kh', 'Qh',  // flop (royal flush draw for player-1)
+      '9s',  // turn
+      '8s',  // river
+      ...createDeck().filter(c => !['Th', 'Jh', '2c', '3d', 'Ah', 'Kh', 'Qh', '9s', '8s'].includes(c)),
+    ];
+
+    const transitions = startHand(state, riggedDeck);
+    let current = transitions[transitions.length - 1].state;
+
+    // Get to the flop: active player is dealer (player-1) in heads-up preflop
+    // Both players call/check through to see community cards
+    const activeId = current.activePlayerId!;
+    let actionTransitions = processAction(current, activeId, 'CALL');
+    current = actionTransitions[actionTransitions.length - 1].state;
+
+    // BB might need to check
+    if (current.activePlayerId) {
+      actionTransitions = processAction(current, current.activePlayerId, 'CHECK');
+      current = actionTransitions[actionTransitions.length - 1].state;
+    }
+
+    // Should be on flop now
+    expect(current.stage).toBe('FLOP');
+    expect(current.communityCards).toEqual(['Ah', 'Kh', 'Qh']);
+  });
+
+  test('rigged deck produces predictable showdown', () => {
+    const state = createHeadsUpGame();
+
+    // Give player-1 pocket aces, player-2 pocket twos
+    // Board is all high cards — player-1 wins
+    const riggedDeck = [
+      'Ah', 'As',  // player-1 — pair of aces
+      '2c', '2d',  // player-2 — pair of twos
+      'Kh', 'Qh', 'Jh',  // flop
+      'Td',  // turn
+      '9d',  // river
+      ...createDeck().filter(c => !['Ah', 'As', '2c', '2d', 'Kh', 'Qh', 'Jh', 'Td', '9d'].includes(c)),
+    ];
+
+    const transitions = startHand(state, riggedDeck);
+    let current = transitions[transitions.length - 1].state;
+
+    // Play all-in to force showdown
+    const activeId = current.activePlayerId!;
+    let actionTransitions = processAction(current, activeId, 'ALL_IN');
+    current = actionTransitions[actionTransitions.length - 1].state;
+
+    if (current.activePlayerId) {
+      actionTransitions = processAction(current, current.activePlayerId, 'ALL_IN');
+      current = actionTransitions[actionTransitions.length - 1].state;
+    }
+
+    // Hand should have ended
+    expect(current.handInProgress).toBe(false);
+
+    // player-1 should have won (AA vs 22 on KQJT9 board = AA straight)
+    // Actually, both have straights with the board, but let's check the winner
+    const p1 = current.players.find(p => p.id === 'player-1')!;
+    const p2 = current.players.find(p => p.id === 'player-2')!;
+    // player-1 with Ah has ace-high straight (AKQJT), player-2 with 2c2d has KQJT9
+    // player-1 should win
+    expect(p1.stack).toBeGreaterThan(p2.stack);
+  });
+
+  test('startHand without deckOverride still works (shuffled)', () => {
+    const state = createHeadsUpGame();
+    const transitions = startHand(state);
+    const dealState = transitions[transitions.length - 1].state;
+
+    // Should still deal cards
+    const p1 = dealState.players.find(p => p.id === 'player-1')!;
+    expect(p1.holeCards).toHaveLength(2);
+  });
+});

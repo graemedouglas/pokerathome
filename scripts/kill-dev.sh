@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Kill running dev server (port 3000) and UI dev server (port 5173).
+# Kill running dev server (port 3000), admin dev server (port 3001), and UI dev server (port 5173).
 #
 
 set -euo pipefail
@@ -33,6 +33,7 @@ kill_port() {
 }
 
 kill_port 3000 "game server"
+kill_port 3001 "admin dev server"
 kill_port 5173 "UI dev server"
 
 echo "Done."

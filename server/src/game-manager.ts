@@ -43,6 +43,7 @@ interface ActiveGame {
   state: EngineState;
   actionTimer: ReturnType<typeof setTimeout> | null;
   warningTimers: ReturnType<typeof setTimeout>[];
+  riggedDeck: string[] | null;
 }
 
 interface ActionResult {
@@ -61,6 +62,7 @@ interface JoinResult {
 
 export class GameManager {
   private activeGames = new Map<string, ActiveGame>();
+  private activeBots = new Map<string, Array<{ stop(): void }>>();
 
   constructor(private logger: FastifyBaseLogger) {}
 
@@ -88,7 +90,7 @@ export class GameManager {
             this.logger.error({ err, gameId: row.id, playerId: gp.player_id }, 'Failed to restore player');
           }
         }
-        this.activeGames.set(row.id, { state: currentState, actionTimer: null, warningTimers: [] });
+        this.activeGames.set(row.id, { state: currentState, actionTimer: null, warningTimers: [], riggedDeck: null });
         this.logger.info({ gameId: row.id, playerCount: players.length }, 'Loaded waiting game');
       }
     }
@@ -113,7 +115,7 @@ export class GameManager {
     if (this.activeGames.has(gameId)) return;
 
     const state = this.createEngineStateFromRow(row);
-    this.activeGames.set(gameId, { state, actionTimer: null, warningTimers: [] });
+    this.activeGames.set(gameId, { state, actionTimer: null, warningTimers: [], riggedDeck: null });
     this.logger.info({ gameId }, 'Game activated');
   }
 
@@ -208,6 +210,7 @@ export class GameManager {
     );
 
     if (readyPlayers.length >= config.MIN_PLAYERS_TO_START) {
+      updateGameStatus(gameId, 'in_progress');
       this.startNextHand(gameId, sessions);
     }
   }
@@ -247,7 +250,9 @@ export class GameManager {
     }
 
     try {
-      const transitions = startHand(active.state);
+      const deckOverride = active.riggedDeck ?? undefined;
+      active.riggedDeck = null;
+      const transitions = startHand(active.state, deckOverride);
       this.applyTransitions(gameId, transitions, sessions);
     } catch (err) {
       this.logger.error({ err, gameId }, 'Failed to start hand');
@@ -547,8 +552,70 @@ export class GameManager {
     deleteGameSnapshot(gameId);
 
     // Clean up
+    this.cleanupBots(gameId);
     this.activeGames.delete(gameId);
     this.logger.info({ gameId, reason }, 'Game ended');
+  }
+
+  // ─── Bot management ────────────────────────────────────────────────────────
+
+  /** Launch a bot that connects to this server via WebSocket. */
+  async addBot(
+    gameId: string,
+    botType: string,
+    displayName: string
+  ): Promise<{ ok: boolean; error?: string }> {
+    let bots: typeof import('@pokerathome/bots');
+    try {
+      bots = await import('@pokerathome/bots');
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to load @pokerathome/bots');
+      return { ok: false, error: 'Bots package not available' };
+    }
+
+    const createStrategy = bots.strategyRegistry[botType];
+    if (!createStrategy) {
+      return { ok: false, error: `Unknown bot type: ${botType}` };
+    }
+
+    const serverUrl = `ws://localhost:${config.PORT}/ws`;
+    const bot = new bots.BotClient({
+      serverUrl,
+      gameId,
+      strategy: createStrategy(),
+      displayName,
+    });
+
+    try {
+      await bot.start();
+      const bots = this.activeBots.get(gameId) ?? [];
+      bots.push(bot);
+      this.activeBots.set(gameId, bots);
+      this.logger.info({ gameId, botType, displayName }, 'Bot added to game');
+      return { ok: true };
+    } catch (err) {
+      this.logger.error({ err, gameId, botType }, 'Failed to start bot');
+      return { ok: false, error: 'Failed to connect bot' };
+    }
+  }
+
+  private cleanupBots(gameId: string): void {
+    const bots = this.activeBots.get(gameId);
+    if (!bots) return;
+    for (const bot of bots) {
+      try { bot.stop(); } catch { /* already stopped */ }
+    }
+    this.activeBots.delete(gameId);
+    this.logger.info({ gameId, botCount: bots.length }, 'Bots cleaned up');
+  }
+
+  // ─── Deck rigging (for tests) ───────────────────────────────────────────────
+
+  /** Set a pre-ordered deck for the next hand (consumed once). */
+  setRiggedDeck(gameId: string, deck: string[]): void {
+    const active = this.activeGames.get(gameId);
+    if (!active) return;
+    active.riggedDeck = deck;
   }
 
   // ─── State query helpers ────────────────────────────────────────────────────

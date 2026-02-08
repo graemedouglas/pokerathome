@@ -66,6 +66,19 @@ async function deleteGame(gameId: string) {
   }
 }
 
+async function addBot(gameId: string, botType: string) {
+  const res = await fetch(`${API}/games/${gameId}/add-bot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ botType }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to add bot');
+  }
+  return res.json();
+}
+
 // ─── Render ─────────────────────────────────────────────────────────────────────
 
 function renderGames(games: Game[]) {
@@ -101,7 +114,12 @@ function renderGames(games: Game[]) {
             <td class="actions">
               ${
                 g.status === 'waiting'
-                  ? `<button class="secondary" onclick="window.__startGame('${g.id}')">Start</button>
+                  ? `<select id="bot-type-${g.id}" class="bot-select">
+                       <option value="calling-station">Calling Station</option>
+                       <option value="tag-bot">TAG Bot</option>
+                     </select>
+                     <button class="secondary" onclick="window.__addBot('${g.id}')">+ Bot</button>
+                     <button class="secondary" onclick="window.__startGame('${g.id}')">Start</button>
                      <button class="danger" onclick="window.__deleteGame('${g.id}')">Delete</button>`
                   : ''
               }
@@ -160,6 +178,18 @@ document.getElementById('create-form')!.addEventListener('submit', async (e) => 
   try {
     await startGame(id);
     toast('Game started');
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+};
+
+(window as any).__addBot = async (id: string) => {
+  const select = document.getElementById(`bot-type-${id}`) as HTMLSelectElement;
+  const botType = select?.value ?? 'calling-station';
+  try {
+    await addBot(id, botType);
+    toast(`${botType} bot added`);
     refresh();
   } catch (err: any) {
     toast(err.message, true);

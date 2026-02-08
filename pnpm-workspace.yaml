@@ -4,6 +4,7 @@ packages:
   - admin
   - ui
   - e2e
+  - bots
 
 ignoredBuiltDependencies:
   - "@asyncapi/cli"

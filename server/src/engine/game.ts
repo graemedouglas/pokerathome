@@ -187,7 +187,7 @@ export function setPlayerConnected(state: EngineState, playerId: string, connect
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /** Start a new hand. Returns a sequence of transitions (HAND_START, BLINDS_POSTED, DEAL). */
-export function startHand(inputState: EngineState): Transition[] {
+export function startHand(inputState: EngineState, deckOverride?: string[]): Transition[] {
   const transitions: Transition[] = [];
   let state = { ...inputState };
 
@@ -211,7 +211,7 @@ export function startHand(inputState: EngineState): Transition[] {
     pots: [],
     dealerSeatIndex: nextDealer.seatIndex,
     activePlayerId: null,
-    deck: shuffle(createDeck()),
+    deck: deckOverride ?? shuffle(createDeck()),
     currentBet: 0,
     lastRaiseSize: state.bigBlindAmount,
     actedThisRound: [],

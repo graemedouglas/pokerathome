@@ -62,6 +62,13 @@ if ($Start) {
   }
   Write-Host "UI starting (job $($uiJob.Id))..."
 
+  # Start admin in background
+  $adminJob = Start-Job -ScriptBlock {
+    Set-Location $using:RootDir
+    pnpm dev:admin 2>&1
+  }
+  Write-Host "Admin starting (job $($adminJob.Id))..."
+
   # Wait for server to be ready
   Write-Host "Waiting for server health check..."
   $ready = $false
@@ -104,16 +111,17 @@ if ($Start) {
   Write-Host "=== Ready ==="
   Write-Host "  Server:  http://localhost:3000"
   Write-Host "  UI:      http://localhost:5173"
+  Write-Host "  Admin:   http://localhost:3001"
   Write-Host "  API:     http://localhost:3000/api/games"
   Write-Host ""
   Write-Host "Press Ctrl+C to stop. Then run: .\scripts\kill-dev.ps1"
 
   # Wait for jobs
   try {
-    Wait-Job -Job $serverJob, $uiJob -Any | Out-Null
+    Wait-Job -Job $serverJob, $uiJob, $adminJob -Any | Out-Null
   } finally {
-    Stop-Job -Job $serverJob, $uiJob -ErrorAction SilentlyContinue
-    Remove-Job -Job $serverJob, $uiJob -Force -ErrorAction SilentlyContinue
+    Stop-Job -Job $serverJob, $uiJob, $adminJob -ErrorAction SilentlyContinue
+    Remove-Job -Job $serverJob, $uiJob, $adminJob -Force -ErrorAction SilentlyContinue
   }
 } else {
   Write-Host ""

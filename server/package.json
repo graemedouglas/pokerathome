@@ -9,11 +9,12 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "jest",
+    "test": "jest --forceExit",
     "create-game": "tsx scripts/create-game.ts",
     "lint": "eslint src/"
   },
   "dependencies": {
+    "@pokerathome/bots": "workspace:*",
     "@pokerathome/schema": "workspace:*",
     "better-sqlite3": "^12.6.2",
     "date-fns": "^4.1.0",

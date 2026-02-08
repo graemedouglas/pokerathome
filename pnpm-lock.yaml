@@ -24,6 +24,43 @@ importers:
         specifier: ^6.1.0
         version: 6.4.1(@types/node@25.2.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.2)
 
+  bots:
+    dependencies:
+      '@pokerathome/schema':
+        specifier: workspace:*
+        version: link:../schema
+      pino:
+        specifier: ^10.3.0
+        version: 10.3.0
+      pokersolver:
+        specifier: ^2.1.4
+        version: 2.1.4
+      ws:
+        specifier: ^8.18.1
+        version: 8.19.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.1
+        version: 25.2.1
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      jest:
+        specifier: ^30.2.0
+        version: 30.2.0(@types/node@25.2.1)(ts-node@10.9.2(@types/node@25.2.1)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.4.6
+        version: 29.4.6(@babel/core@7.29.0)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.0))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.2.1)(ts-node@10.9.2(@types/node@25.2.1)(typescript@5.9.3)))(typescript@5.9.3)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   e2e:
     devDependencies:
       playwright-core:
@@ -57,6 +94,9 @@ importers:
       '@fastify/websocket':
         specifier: ^11.2.0
         version: 11.2.0
+      '@pokerathome/bots':
+        specifier: workspace:*
+        version: link:../bots
       '@pokerathome/schema':
         specifier: workspace:*
         version: link:../schema

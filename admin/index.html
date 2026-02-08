@@ -53,7 +53,11 @@
     .status-waiting { color: #f59e0b; }
     .status-in_progress { color: #22c55e; }
     .status-completed { color: #666; }
-    .actions { display: flex; gap: 0.5rem; }
+    .actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .bot-select {
+      background: #111; border: 1px solid #333; border-radius: 4px;
+      color: #e0e0e0; padding: 0.3rem 0.5rem; font-size: 0.8rem;
+    }
     .toast {
       position: fixed; bottom: 1.5rem; right: 1.5rem;
       background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
