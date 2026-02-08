@@ -132,30 +132,78 @@ export class Lobby {
         const status = el('span', `lobby-game-status lobby-status-${game.status}`)
         status.textContent = game.status === 'waiting' ? 'Waiting' : 'In Progress'
 
-        const joinBtn = el('button', 'lobby-btn lobby-btn-primary lobby-btn-small')
-        joinBtn.textContent = 'Join'
-        joinBtn.addEventListener('click', () => {
-          this.currentGameId = game.gameId
-          this.isSpectator = false
-          this.ws.send('joinGame', { gameId: game.gameId })
-        })
-
-        const spectateBtn = el('button', 'lobby-btn lobby-btn-secondary lobby-btn-small')
-        spectateBtn.textContent = 'Spectate'
-        spectateBtn.addEventListener('click', () => {
-          this.currentGameId = game.gameId
-          this.isSpectator = true
-          this.ws.send('joinGame', { gameId: game.gameId, role: 'spectator' })
+        const enterBtn = el('button', 'lobby-btn lobby-btn-primary lobby-btn-small')
+        enterBtn.textContent = 'Enter'
+        enterBtn.addEventListener('click', () => {
+          this.showJoinChoiceScreen(game)
         })
 
         const row = el('div', 'lobby-game-row')
-        row.append(el('div', '', name, info), el('div', 'lobby-game-actions', status, joinBtn, spectateBtn))
+        row.append(el('div', '', name, info), el('div', 'lobby-game-actions', status, enterBtn))
         card.appendChild(row)
         list.appendChild(card)
       }
       container.appendChild(list)
     }
 
+    this.setContent(container)
+  }
+
+  private showJoinChoiceScreen(game: GameListItem): void {
+    this.currentScreen = 'games'
+    const container = el('div', 'lobby-card')
+
+    const title = el('h2', 'lobby-title-sm')
+    title.textContent = game.name
+
+    const info = el('p', 'lobby-subtitle')
+    info.textContent = `${game.playerCount}/${game.maxPlayers} players \u2022 $${game.smallBlindAmount}/$${game.bigBlindAmount}`
+
+    const prompt = el('p', 'lobby-join-prompt')
+    prompt.textContent = 'How would you like to join?'
+
+    const playBtn = el('button', 'lobby-btn lobby-btn-primary lobby-join-choice-btn')
+    playBtn.textContent = 'Play'
+    const playHint = el('p', 'lobby-join-hint')
+    playHint.textContent = 'Sit at the table and play hands'
+
+    const spectateBtn = el('button', 'lobby-btn lobby-btn-spectate lobby-join-choice-btn')
+    spectateBtn.textContent = 'Spectate'
+    const spectateHint = el('p', 'lobby-join-hint')
+    spectateHint.textContent = 'Watch the game and chat'
+
+    const backBtn = el('button', 'lobby-btn lobby-btn-secondary')
+    backBtn.textContent = 'Back'
+    backBtn.addEventListener('click', () => {
+      this.ws.send('listGames', {})
+    })
+
+    playBtn.addEventListener('click', () => {
+      this.currentGameId = game.gameId
+      this.isSpectator = false
+      playBtn.textContent = 'Joining...'
+      playBtn.setAttribute('disabled', 'true')
+      spectateBtn.setAttribute('disabled', 'true')
+      this.ws.send('joinGame', { gameId: game.gameId })
+    })
+
+    spectateBtn.addEventListener('click', () => {
+      this.currentGameId = game.gameId
+      this.isSpectator = true
+      spectateBtn.textContent = 'Joining...'
+      playBtn.setAttribute('disabled', 'true')
+      spectateBtn.setAttribute('disabled', 'true')
+      this.ws.send('joinGame', { gameId: game.gameId, role: 'spectator' })
+    })
+
+    const choices = el('div', 'lobby-join-choices')
+    const playGroup = el('div', 'lobby-join-group')
+    playGroup.append(playBtn, playHint)
+    const spectateGroup = el('div', 'lobby-join-group')
+    spectateGroup.append(spectateBtn, spectateHint)
+    choices.append(playGroup, spectateGroup)
+
+    container.append(title, info, prompt, choices, backBtn)
     this.setContent(container)
   }
 
@@ -447,5 +495,39 @@ const LOBBY_STYLES = `<style>
   .lobby-status-in_progress {
     background: #3d3a1a;
     color: #fbbf24;
+  }
+  .lobby-join-prompt {
+    font-size: 15px;
+    color: #999;
+    text-align: center;
+    margin: 4px 0 0;
+  }
+  .lobby-join-choices {
+    display: flex;
+    gap: 12px;
+  }
+  .lobby-join-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .lobby-join-choice-btn {
+    width: 100%;
+    padding: 14px 20px;
+    font-size: 16px;
+  }
+  .lobby-join-hint {
+    font-size: 11px;
+    color: #666688;
+    text-align: center;
+    margin: 0;
+  }
+  .lobby-btn-spectate {
+    background: #4a3d6b;
+    color: #d4c0f0;
+  }
+  .lobby-btn-spectate:hover:not(:disabled) {
+    background: #5d4d80;
   }
 </style>`
