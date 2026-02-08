@@ -24,6 +24,7 @@ export type GameControllerEventHandler = (event: GameControllerEvent) => void
 export class GameController {
   private renderer: GameRenderer
   private ws: WsClient
+  private isSpectator: boolean
   private myPlayerId = ''
   private currentHandNumber = 0
   private sbPlayerId?: string
@@ -35,9 +36,10 @@ export class GameController {
   private started = false
   private pendingActionRequest = false
 
-  constructor(renderer: GameRenderer, ws: WsClient) {
+  constructor(renderer: GameRenderer, ws: WsClient, isSpectator = false) {
     this.renderer = renderer
     this.ws = ws
+    this.isSpectator = isSpectator
   }
 
   setPlayerId(playerId: string): void {
@@ -70,11 +72,15 @@ export class GameController {
       case 'error':
         this.emit({ type: 'error', message: (msg.payload as { message: string }).message })
         break
-      case 'chatMessage':
-        this.renderer.addLog(
-          `${(msg.payload as { displayName: string }).displayName}: ${(msg.payload as { message: string }).message}`
-        )
+      case 'chatMessage': {
+        const chat = msg.payload as { playerId: string; displayName: string; message: string; timestamp: string }
+        this.renderer.addChatMessage({
+          displayName: chat.displayName,
+          message: chat.message,
+          timestamp: chat.timestamp,
+        })
         break
+      }
     }
   }
 
@@ -116,8 +122,8 @@ export class GameController {
     // Handle event-driven animations
     await this.processEvent(event, serverState, uiState)
 
-    // Handle action request (it's our turn)
-    if (actionRequest && !this.pendingActionRequest) {
+    // Handle action request (it's our turn) -- spectators never act
+    if (actionRequest && !this.pendingActionRequest && !this.isSpectator) {
       this.pendingActionRequest = true
       const available = adaptActionRequest(actionRequest)
 

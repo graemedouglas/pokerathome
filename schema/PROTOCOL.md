@@ -45,7 +45,7 @@ Examples: `Ad` (ace of diamonds), `Tc` (ten of clubs), `6s` (six of spades).
 | --------------- | -------------------------------------- | ---------------------------------- |
 | `identify`      | `{ displayName, reconnectToken? }`     | Request identity / reconnect       |
 | `listGames`     | `{}`                                   | List available games               |
-| `joinGame`      | `{ gameId }`                           | Join a game room                   |
+| `joinGame`      | `{ gameId, role? }`                    | Join a game room (as player or spectator) |
 | `ready`         | `{}`                                   | Signal readiness to play           |
 | `playerAction`  | `{ handNumber, type, amount? }`        | Submit a game action               |
 | `revealCards`   | `{ handNumber }`                       | Voluntarily show hole cards        |
@@ -108,6 +108,14 @@ Bot                                   Server
 ```
 
 After joining and signaling `ready`, the server will begin sending `gameState` messages once the game starts.
+
+To join as a **spectator**, include `role: "spectator"` in the `joinGame` payload:
+
+```json
+{ "action": "joinGame", "payload": { "gameId": "uuid", "role": "spectator" } }
+```
+
+Spectators do not need to send `ready`. They immediately receive game state updates with all hole cards visible and are never prompted to act. Spectators do not count against the game's `maxPlayers` limit.
 
 ### 3. Game Flow (the core loop)
 
@@ -249,7 +257,7 @@ Events are discriminated on the `type` field within the `gameState` payload's `e
 | `SHOWDOWN`        | `results: [{ playerId, holeCards, handRank, handDescription }]`|
 | `HAND_END`        | `winners: [{ playerId, amount, potIndex }]`                    |
 | `PLAYER_REVEALED` | `playerId`, `holeCards`                                        |
-| `PLAYER_JOINED`   | `playerId`, `displayName`, `seatIndex`                         |
+| `PLAYER_JOINED`   | `playerId`, `displayName`, `seatIndex`, `role?`                |
 | `PLAYER_LEFT`     | `playerId`                                                     |
 
 ---
@@ -279,4 +287,4 @@ Events are discriminated on the `type` field within the `gameState` payload's `e
 - **Split pot:** Multiple entries in `winners[]` with the same `potIndex`.
 - **Everyone folds:** `HAND_END` fires immediately (no `SHOWDOWN`). Pot goes to the last player standing.
 - **Card reveal:** After `SHOWDOWN`, you can optionally send `{ action: "revealCards", payload: { handNumber } }`. Server broadcasts a `PLAYER_REVEALED` event.
-- **Spectators:** Same `gameState` messages as players, but `holeCards` are visible for all players and `actionRequest` is never included.
+- **Spectators:** Join with `{ gameId, role: "spectator" }`. Same `gameState` messages as players, but `holeCards` are visible for all players and `actionRequest` is never included. Spectators don't need to `ready` up, don't count against `maxPlayers`, and can chat.

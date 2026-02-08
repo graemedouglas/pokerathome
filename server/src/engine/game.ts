@@ -118,29 +118,40 @@ export function addPlayer(
   displayName: string,
   role: 'player' | 'spectator' = 'player'
 ): { state: EngineState; seatIndex: number; event: Event } {
-  const occupiedSeats = new Set(state.players.map((p) => p.seatIndex));
-  let seatIndex = -1;
-  for (let i = 0; i < state.maxPlayers; i++) {
-    if (!occupiedSeats.has(i)) {
-      seatIndex = i;
-      break;
+  let seatIndex: number;
+
+  if (role === 'spectator') {
+    // Spectators get seats starting from maxPlayers onward (never collide with playing seats)
+    const spectatorSeats = state.players
+      .filter((p) => p.role === 'spectator')
+      .map((p) => p.seatIndex);
+    seatIndex = state.maxPlayers;
+    while (spectatorSeats.includes(seatIndex)) seatIndex++;
+  } else {
+    const occupiedSeats = new Set(state.players.map((p) => p.seatIndex));
+    seatIndex = -1;
+    for (let i = 0; i < state.maxPlayers; i++) {
+      if (!occupiedSeats.has(i)) {
+        seatIndex = i;
+        break;
+      }
     }
+    if (seatIndex === -1) throw new Error('No seats available');
   }
-  if (seatIndex === -1) throw new Error('No seats available');
 
   const player: EnginePlayer = {
     id: playerId,
     displayName,
     seatIndex,
     role,
-    stack: state.startingStack,
+    stack: role === 'spectator' ? 0 : state.startingStack,
     bet: 0,
     potShare: 0,
     folded: false,
     holeCards: null,
     connected: true,
     isAllIn: false,
-    isReady: false,
+    isReady: role === 'spectator',
   };
 
   const event: Event = {
@@ -148,6 +159,7 @@ export function addPlayer(
     playerId,
     displayName,
     seatIndex,
+    role,
   };
 
   return {

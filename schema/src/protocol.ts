@@ -214,6 +214,7 @@ export const PlayerJoinedEvent = z.object({
   playerId: z.string().uuid(),
   displayName: z.string(),
   seatIndex: z.number().int().min(0),
+  role: PlayerRole.optional(),
 });
 export type PlayerJoinedEvent = z.infer<typeof PlayerJoinedEvent>;
 
@@ -254,6 +255,7 @@ export type IdentifyPayload = z.infer<typeof IdentifyPayload>;
 
 export const JoinGamePayload = z.object({
   gameId: z.string().uuid(),
+  role: PlayerRole.optional(),
 });
 export type JoinGamePayload = z.infer<typeof JoinGamePayload>;
 

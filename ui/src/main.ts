@@ -28,10 +28,10 @@ async function main() {
 
   // Initialize PixiJS renderer
   const renderer = new GameRenderer()
-  await renderer.init()
+  await renderer.init(result.isSpectator, ws)
 
   // Wire up game controller
-  const controller = new GameController(renderer, ws)
+  const controller = new GameController(renderer, ws, result.isSpectator)
   controller.setPlayerId(result.playerId)
   controller.start()
 

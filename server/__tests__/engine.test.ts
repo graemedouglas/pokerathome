@@ -333,6 +333,114 @@ describe('Action validator', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Spectator support
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Spectator support', () => {
+  test('spectator gets seatIndex >= maxPlayers', () => {
+    let state = createInitialState({
+      gameId: 'test-spec',
+      gameName: 'Test',
+      gameType: 'cash',
+      smallBlindAmount: 5,
+      bigBlindAmount: 10,
+      maxPlayers: 6,
+      startingStack: 1000,
+    });
+
+    const p1 = addPlayer(state, 'player-1', 'Alice');
+    state = p1.state;
+    const spec = addPlayer(state, 'spec-1', 'Spectator', 'spectator');
+    state = spec.state;
+
+    expect(spec.seatIndex).toBeGreaterThanOrEqual(6);
+    const spectator = state.players.find((p) => p.id === 'spec-1')!;
+    expect(spectator.role).toBe('spectator');
+    expect(spectator.stack).toBe(0);
+    expect(spectator.isReady).toBe(true);
+  });
+
+  test('spectator does not take a playing seat', () => {
+    let state = createInitialState({
+      gameId: 'test-spec2',
+      gameName: 'Test',
+      gameType: 'cash',
+      smallBlindAmount: 5,
+      bigBlindAmount: 10,
+      maxPlayers: 2,
+      startingStack: 1000,
+    });
+
+    const p1 = addPlayer(state, 'player-1', 'Alice');
+    state = p1.state;
+    const spec = addPlayer(state, 'spec-1', 'Spectator', 'spectator');
+    state = spec.state;
+
+    // Seat 1 should still be free for another player
+    const p2 = addPlayer(state, 'player-2', 'Bob');
+    state = p2.state;
+    expect(p2.seatIndex).toBe(1);
+  });
+
+  test('spectator sees all hole cards via toClientGameState', () => {
+    const state = createTestGame();
+    const transitions = startHand(state);
+    const dealState = transitions[transitions.length - 1].state;
+
+    // Add a spectator to the dealt state
+    const result = addPlayer(dealState, 'spec-1', 'Watcher', 'spectator');
+    const withSpec = result.state;
+
+    const clientState = toClientGameState(withSpec, 'spec-1');
+    const otherPlayers = clientState.players.filter((p) => p.id !== 'spec-1' && p.role === 'player');
+
+    for (const p of otherPlayers) {
+      expect(p.holeCards).not.toBeNull();
+      expect(p.holeCards).toHaveLength(2);
+    }
+  });
+
+  test('PlayerJoinedEvent includes role for spectators', () => {
+    let state = createInitialState({
+      gameId: 'test-spec3',
+      gameName: 'Test',
+      gameType: 'cash',
+      smallBlindAmount: 5,
+      bigBlindAmount: 10,
+      maxPlayers: 6,
+      startingStack: 1000,
+    });
+
+    const result = addPlayer(state, 'spec-1', 'Watcher', 'spectator');
+    expect(result.event.type).toBe('PLAYER_JOINED');
+    if (result.event.type === 'PLAYER_JOINED') {
+      expect(result.event.role).toBe('spectator');
+    }
+  });
+
+  test('multiple spectators get unique seats', () => {
+    let state = createInitialState({
+      gameId: 'test-spec4',
+      gameName: 'Test',
+      gameType: 'cash',
+      smallBlindAmount: 5,
+      bigBlindAmount: 10,
+      maxPlayers: 6,
+      startingStack: 1000,
+    });
+
+    const s1 = addPlayer(state, 'spec-1', 'Spec1', 'spectator');
+    state = s1.state;
+    const s2 = addPlayer(state, 'spec-2', 'Spec2', 'spectator');
+    state = s2.state;
+
+    expect(s1.seatIndex).not.toBe(s2.seatIndex);
+    expect(s1.seatIndex).toBeGreaterThanOrEqual(6);
+    expect(s2.seatIndex).toBeGreaterThanOrEqual(6);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Rigged deck
 // ═══════════════════════════════════════════════════════════════════════════════
 

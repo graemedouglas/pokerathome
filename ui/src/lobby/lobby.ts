@@ -6,6 +6,7 @@ export interface LobbyResult {
   playerId: string
   reconnectToken: string
   gameId: string
+  isSpectator: boolean
   initialGameState?: GameStateUpdatePayload
 }
 
@@ -18,6 +19,7 @@ export class Lobby {
   private playerId = ''
   private reconnectToken = ''
   private currentGameId = ''
+  private isSpectator = false
   private currentScreen: LobbyScreen = 'connect'
   private removeMessageHandler?: () => void
 
@@ -134,11 +136,20 @@ export class Lobby {
         joinBtn.textContent = 'Join'
         joinBtn.addEventListener('click', () => {
           this.currentGameId = game.gameId
+          this.isSpectator = false
           this.ws.send('joinGame', { gameId: game.gameId })
         })
 
+        const spectateBtn = el('button', 'lobby-btn lobby-btn-secondary lobby-btn-small')
+        spectateBtn.textContent = 'Spectate'
+        spectateBtn.addEventListener('click', () => {
+          this.currentGameId = game.gameId
+          this.isSpectator = true
+          this.ws.send('joinGame', { gameId: game.gameId, role: 'spectator' })
+        })
+
         const row = el('div', 'lobby-game-row')
-        row.append(el('div', '', name, info), el('div', 'lobby-game-actions', status, joinBtn))
+        row.append(el('div', '', name, info), el('div', 'lobby-game-actions', status, joinBtn, spectateBtn))
         card.appendChild(row)
         list.appendChild(card)
       }
@@ -202,7 +213,12 @@ export class Lobby {
       }
 
       case 'gameJoined': {
-        this.showWaitingScreen()
+        if (this.isSpectator) {
+          const gsPayload = (msg.payload as { gameState: GameStateUpdatePayload['gameState'] })
+          this.finish({ gameState: gsPayload.gameState, event: { type: 'PLAYER_JOINED', playerId: this.playerId, displayName: '', seatIndex: 0 } } as GameStateUpdatePayload)
+        } else {
+          this.showWaitingScreen()
+        }
         break
       }
 
@@ -250,6 +266,7 @@ export class Lobby {
       playerId: this.playerId,
       reconnectToken: this.reconnectToken,
       gameId: this.currentGameId,
+      isSpectator: this.isSpectator,
       initialGameState,
     })
     this.resolve = null

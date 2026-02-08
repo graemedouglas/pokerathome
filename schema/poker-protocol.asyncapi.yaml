@@ -910,6 +910,11 @@ components:
         seatIndex:
           type: integer
           minimum: 0
+        role:
+          $ref: '#/components/schemas/PlayerRole'
+          description: >-
+            Role of the joining participant. Omitted or "player" for regular players,
+            "spectator" for observers.
 
     PlayerLeftEvent:
       type: object
@@ -965,6 +970,11 @@ components:
         gameId:
           type: string
           format: uuid
+        role:
+          $ref: '#/components/schemas/PlayerRole'
+          description: >-
+            Join as "player" (default) or "spectator".
+            Spectators see all hole cards but never receive action requests.
 
     PlayerActionPayload:
       type: object

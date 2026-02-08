@@ -11,6 +11,8 @@ import { SettingsPanel } from './SettingsPanel';
 import { clearTextureCache } from './CardSprite';
 import { GameSettings } from '../settings/GameSettings';
 import { InfoPanel } from './InfoPanel';
+import { ChatPanel, type ChatMessage } from './ChatPanel';
+import type { WsClient } from '../network/ws-client';
 import { tween, delay, easeOutBack, easeOutCubic } from '../utils/Animations';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -35,6 +37,9 @@ export class GameRenderer {
   private actionPanel!: ActionPanel;
   private settingsPanel!: SettingsPanel;
   private infoPanel!: InfoPanel;
+  private chatPanel!: ChatPanel;
+  private isSpectator = false;
+  private spectatorText!: Text;
   private lastState: GameState | null = null;
   private winnerBanner!: Container;
   private winnerBannerBg!: Graphics;
@@ -44,7 +49,8 @@ export class GameRenderer {
 
   private humanActionResolve: ((action: PlayerAction) => void) | null = null;
 
-  async init(): Promise<void> {
+  async init(isSpectator = false, ws?: WsClient): Promise<void> {
+    this.isSpectator = isSpectator;
     this.app = new Application();
     await this.app.init({
       width: CANVAS_WIDTH,
@@ -102,9 +108,11 @@ export class GameRenderer {
     this.potDisplay = new PotDisplay();
     this.communityLayer.addChild(this.potDisplay);
 
-    // Action panel
+    // Action panel (hidden for spectators)
     this.actionPanel = new ActionPanel();
-    this.uiLayer.addChild(this.actionPanel);
+    if (!this.isSpectator) {
+      this.uiLayer.addChild(this.actionPanel);
+    }
 
     // Phase indicator ΓÇö white with dark stroke for visibility over green felt
     this.phaseText = new Text({
@@ -225,7 +233,31 @@ export class GameRenderer {
     this.infoPanel = new InfoPanel();
     this.uiLayer.addChild(this.infoPanel);
 
-    // Listen for settings changes ΓåÆ clear card cache + re-render
+    // Spectator indicator
+    this.spectatorText = new Text({
+      text: 'SPECTATING',
+      style: {
+        fontSize: 14,
+        fill: 0xfbbf24,
+        fontFamily: 'Arial',
+        fontWeight: 'bold',
+        letterSpacing: 3,
+        stroke: { color: 0x000000, width: 3 },
+      },
+    });
+    this.spectatorText.anchor.set(0.5);
+    this.spectatorText.x = TABLE_CENTER_X;
+    this.spectatorText.y = CANVAS_HEIGHT - 40;
+    this.spectatorText.visible = this.isSpectator;
+    this.uiLayer.addChild(this.spectatorText);
+
+    // Chat panel (HTML overlay)
+    if (ws) {
+      this.chatPanel = new ChatPanel(ws);
+      this.chatPanel.mount();
+    }
+
+    // Listen for settings changes — clear card cache + re-render
     GameSettings.onChange(() => {
       clearTextureCache();
       // Force re-render of all player cards by resetting prevCardCount
@@ -333,6 +365,10 @@ export class GameRenderer {
 
   addLog(message: string): void {
     this.infoPanel.addLog(message);
+  }
+
+  addChatMessage(msg: ChatMessage): void {
+    this.chatPanel?.addMessage(msg);
   }
 
   updateStats(handsPlayed: number, handsWon: number, biggestPot: number): void {

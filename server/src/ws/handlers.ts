@@ -106,7 +106,8 @@ export function handleJoinGame(
     return;
   }
 
-  const result = gameManager.joinGame(payload.gameId, session.playerId, session.displayName);
+  const role = payload.role ?? 'player';
+  const result = gameManager.joinGame(payload.gameId, session.playerId, session.displayName, role);
   if (!result.ok) {
     sessions.send(session.playerId, {
       action: 'error',

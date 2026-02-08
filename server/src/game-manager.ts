@@ -137,13 +137,16 @@ export class GameManager {
 
   // ─── Join / Leave ───────────────────────────────────────────────────────────
 
-  joinGame(gameId: string, playerId: string, displayName: string): JoinResult {
+  joinGame(gameId: string, playerId: string, displayName: string, role: 'player' | 'spectator' = 'player'): JoinResult {
     const row = getGameById(gameId);
     if (!row) return { ok: false, errorCode: 'GAME_NOT_FOUND', errorMessage: 'Game not found' };
 
-    const currentCount = getGamePlayerCount(gameId);
-    if (currentCount >= row.max_players) {
-      return { ok: false, errorCode: 'GAME_FULL', errorMessage: 'Game is full' };
+    // Only enforce capacity for players, not spectators
+    if (role !== 'spectator') {
+      const currentCount = getGamePlayerCount(gameId);
+      if (currentCount >= row.max_players) {
+        return { ok: false, errorCode: 'GAME_FULL', errorMessage: 'Game is full' };
+      }
     }
 
     // Ensure game is active in memory
@@ -154,11 +157,12 @@ export class GameManager {
     const active = this.activeGames.get(gameId)!;
 
     try {
-      const result = addPlayer(active.state, playerId, displayName);
+      const result = addPlayer(active.state, playerId, displayName, role);
       active.state = result.state;
 
       // Persist to DB
-      addGamePlayer(gameId, playerId, result.seatIndex, 'player', row.starting_stack);
+      const stack = role === 'spectator' ? 0 : row.starting_stack;
+      addGamePlayer(gameId, playerId, result.seatIndex, role, stack);
 
       const clientState = toClientGameState(active.state, playerId);
       return { ok: true, gameState: clientState, joinEvent: result.event };
