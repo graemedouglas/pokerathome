@@ -32,24 +32,14 @@ RUN pnpm --filter @pokerathome/schema build && \
 # Fix bots entry point for Node.js runtime (dev uses tsx which handles .ts natively)
 RUN sed -i 's/"main": "src\/index.ts"/"main": "dist\/index.js"/' bots/package.json
 
+# Create standalone deployment with flat node_modules (no pnpm symlinks to break)
+RUN pnpm --filter @pokerathome/server deploy /deploy --prod
+
 # ── Runtime stage ────────────────────────────────────────────────────────────────
 FROM node:22-alpine
 
 WORKDIR /app
-
-# Copy workspace manifests
-COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-
-# Copy built workspace packages (dist only — no source shipped)
-COPY --from=build /app/schema/package.json schema/package.json
-COPY --from=build /app/schema/dist schema/dist
-COPY --from=build /app/bots/package.json bots/package.json
-COPY --from=build /app/bots/dist bots/dist
-COPY --from=build /app/server/package.json server/package.json
-COPY --from=build /app/server/dist server/dist
-
-# Copy node_modules (preserves compiled native addons like better-sqlite3)
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /deploy .
 
 # SQLite data volume mount point
 RUN mkdir -p /data
@@ -57,4 +47,4 @@ RUN mkdir -p /data
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["node", "server/dist/index.js"]
+CMD ["node", "dist/index.js"]
