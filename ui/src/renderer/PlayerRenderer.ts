@@ -44,7 +44,8 @@ export class PlayerRenderer extends Container {
   private app: AppLike;
   private seatIndex: number;
   private stopPulse: (() => void) | null = null;
-  private prevCardCount = 0;
+  /** Tracks card identity so we recreate sprites when cards change (not just count) */
+  private prevCardKey = '';
   private actionPopText: Text | null = null;
   private actionPopTimeout: ReturnType<typeof setTimeout> | null = null;
   private handDescText: Text;
@@ -288,21 +289,25 @@ export class PlayerRenderer extends Container {
       if (this.cards.length > 0) {
         this.cardContainer.removeChildren();
         this.cards = [];
-        this.prevCardCount = 0;
+        this.prevCardKey = '';
       }
       return;
     }
 
     const showFace = hasRealCards && (player.isHuman || phase === 'showdown');
     const cardData = hasRealCards ? player.holeCards : [HIDDEN_CARD, HIDDEN_CARD];
-    const newCount = cardData.length;
 
-    if (newCount !== this.prevCardCount) {
+    // Build a key from the card codes so we detect when cards actually change
+    // (e.g., hidden backs → real showdown cards, or new hand cards)
+    const cardKey = cardData.map(c => c.code).join(',');
+
+    if (cardKey !== this.prevCardKey) {
+      // Cards changed — recreate sprites
       this.cardContainer.removeChildren();
       this.cards = [];
       const overlap = CARD_WIDTH * 0.35;
 
-      for (let i = 0; i < newCount; i++) {
+      for (let i = 0; i < cardData.length; i++) {
         const card = new CardSprite(cardData[i], this.app, showFace);
         const targetX = (i - 0.5) * (CARD_WIDTH - overlap);
         const targetRotation = (i - 0.5) * 0.06;
@@ -331,8 +336,9 @@ export class PlayerRenderer extends Container {
           });
         }, staggerDelay);
       }
-      this.prevCardCount = newCount;
-    } else if (hasRealCards) {
+      this.prevCardKey = cardKey;
+    } else {
+      // Same cards — just update face/back visibility
       for (let i = 0; i < this.cards.length; i++) {
         if (this.cards[i].isFaceUp !== showFace) {
           this.cards[i].flipAnimation(this.app.ticker, showFace);
@@ -357,7 +363,7 @@ export class PlayerRenderer extends Container {
   }
 
   resetForNewHand(): void {
-    this.prevCardCount = 0;
+    this.prevCardKey = '';
     this.cardContainer.removeChildren();
     this.cards = [];
     this.handDescText.text = '';

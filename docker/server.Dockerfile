@@ -29,6 +29,9 @@ RUN pnpm --filter @pokerathome/schema build && \
     pnpm --filter @pokerathome/bots build && \
     pnpm --filter @pokerathome/server build
 
+# Copy non-TS assets that tsc doesn't emit
+RUN cp server/src/db/schema.sql server/dist/db/schema.sql
+
 # Fix bots entry point for Node.js runtime (dev uses tsx which handles .ts natively)
 RUN sed -i 's/"main": "src\/index.ts"/"main": "dist\/index.js"/' bots/package.json
 
