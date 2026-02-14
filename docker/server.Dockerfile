@@ -33,7 +33,7 @@ RUN pnpm --filter @pokerathome/schema build && \
 RUN sed -i 's/"main": "src\/index.ts"/"main": "dist\/index.js"/' bots/package.json
 
 # Create standalone deployment with flat node_modules (no pnpm symlinks to break)
-RUN pnpm --filter @pokerathome/server deploy /deploy --prod
+RUN pnpm --filter @pokerathome/server deploy /deploy --prod --legacy
 
 # ── Runtime stage ────────────────────────────────────────────────────────────────
 FROM node:22-alpine

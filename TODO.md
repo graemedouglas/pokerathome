@@ -17,6 +17,8 @@
 
 - Rebuild the UI in react (oh no)
 
+- Spectators broken. Should not be at table, should not be waited on for action
+
 # BUGS
 
 - Ben's browser-join bug "you are already in a game" - probably sticky session, check localStorage
