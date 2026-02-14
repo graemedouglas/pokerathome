@@ -32,7 +32,6 @@ FROM nginx:alpine
 
 # Replace default nginx site with our reverse-proxy + static config
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
-COPY docker/.htpasswd /etc/nginx/.htpasswd
 
 # Copy built static assets
 COPY --from=build /app/ui/dist /usr/share/nginx/html/ui
