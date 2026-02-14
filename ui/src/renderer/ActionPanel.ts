@@ -59,6 +59,12 @@ export class ActionPanel extends Container {
   private callback: ActionCallback | null = null;
   private bgPanel!: Graphics;
   private raiseButtonText: Text | null = null;
+  private raiseType: 'BET' | 'RAISE' | null = null;
+  private timerBar!: Graphics;
+  private timerRafId: number | null = null;
+  private timerEndTime = 0;
+  private timerTotalMs = 0;
+  private currentPanelH = PANEL_HEIGHT_FULL;
 
   constructor() {
     super();
@@ -71,6 +77,11 @@ export class ActionPanel extends Container {
     this.bgPanel = new Graphics();
     this.drawBgPanel(PANEL_HEIGHT_FULL);
     this.addChild(this.bgPanel);
+
+    // Timer bar (shown during action countdown)
+    this.timerBar = new Graphics();
+    this.timerBar.visible = false;
+    this.addChild(this.timerBar);
 
     // Raise section (slider row + presets row) - hidden when raise not available
     this.raiseSection = new Container();
@@ -303,7 +314,7 @@ export class ActionPanel extends Container {
     this.betAmountText.text = `$${this.raiseAmount}`;
     if (this.raiseButtonText) {
       const label = this.raiseAmount === this.maxRaise ? 'All In' :
-        (this.currentPot === 0 ? 'Bet' : 'Raise');
+        (this.raiseType === 'BET' ? 'Bet' : 'Raise');
       this.raiseButtonText.text = `${label}\n$${this.raiseAmount}`;
     }
   }
@@ -375,9 +386,10 @@ export class ActionPanel extends Container {
     input.addEventListener('blur', applyAndCleanup);
   }
 
-  show(available: AvailableActions, pot: number, callback: ActionCallback): void {
+  show(available: AvailableActions, pot: number, callback: ActionCallback, timeToActMs?: number): void {
     this.callback = callback;
     this.currentPot = pot;
+    this.raiseType = available.raiseType;
     this.visible = true;
     this.raiseButtonText = null;
 
@@ -387,6 +399,7 @@ export class ActionPanel extends Container {
 
     const hasRaise = available.canRaise;
     const panelH = hasRaise ? PANEL_HEIGHT_FULL : PANEL_HEIGHT_SHORT;
+    this.currentPanelH = panelH;
     const btnY = hasRaise ? ACTION_ROW_Y_FULL : ACTION_ROW_Y_SHORT;
 
     this.drawBgPanel(panelH);
@@ -421,7 +434,7 @@ export class ActionPanel extends Container {
 
       this.minRaise = available.minRaise;
       this.maxRaise = available.maxRaise;
-      const raiseLabel = available.canCall ? 'Raise' : 'Bet';
+      const raiseLabel = available.raiseType === 'BET' ? 'Bet' : 'Raise';
       this.addRaiseBtn(raiseLabel, available.minRaise, btnY,
         () => callback({ type: 'raise', amount: this.raiseAmount }));
 
@@ -436,6 +449,11 @@ export class ActionPanel extends Container {
         x += def.w + gap;
       }
       this.raiseSection.visible = false;
+    }
+
+    // Start action timer
+    if (timeToActMs && timeToActMs > 0) {
+      this.startTimer(timeToActMs);
     }
 
     this.updateDebugInfo();
@@ -518,7 +536,72 @@ export class ActionPanel extends Container {
     this.visible = false;
     this.callback = null;
     this.raiseButtonText = null;
+    this.stopTimer();
     window.__pokerDebug = { visible: false, buttons: [] };
+  }
+
+  // -- Timer --
+
+  private startTimer(totalMs: number): void {
+    this.stopTimer();
+    this.timerTotalMs = totalMs;
+    this.timerEndTime = performance.now() + totalMs;
+    this.timerBar.visible = true;
+    this.tickTimer();
+  }
+
+  updateTimer(remainingMs: number): void {
+    this.timerEndTime = performance.now() + remainingMs;
+    // If ticker not running but panel is visible, restart animation loop
+    if (this.timerRafId === null && this.visible) {
+      this.timerBar.visible = true;
+      this.tickTimer();
+    }
+  }
+
+  private tickTimer(): void {
+    const now = performance.now();
+    const remaining = Math.max(0, this.timerEndTime - now);
+    const ratio = this.timerTotalMs > 0 ? remaining / this.timerTotalMs : 0;
+    this.drawTimerBar(ratio);
+
+    if (remaining > 0 && this.visible) {
+      this.timerRafId = requestAnimationFrame(() => this.tickTimer());
+    } else {
+      this.timerRafId = null;
+    }
+  }
+
+  private drawTimerBar(ratio: number): void {
+    const barW = PANEL_WIDTH - 28;
+    const barH = 4;
+    const y = -this.currentPanelH / 2 + 8;
+
+    this.timerBar.clear();
+
+    // Track background
+    this.timerBar.roundRect(-barW / 2, y, barW, barH, 2);
+    this.timerBar.fill({ color: 0x1e293b });
+
+    // Fill — green → yellow → red
+    if (ratio > 0) {
+      const color = ratio > 0.5 ? 0x22c55e : ratio > 0.2 ? 0xfbbf24 : 0xef4444;
+      this.timerBar.roundRect(-barW / 2, y, barW * ratio, barH, 2);
+      this.timerBar.fill({ color });
+    }
+
+    // Urgent pulse when low
+    this.timerBar.alpha = ratio < 0.2 && ratio > 0
+      ? 0.5 + 0.5 * Math.abs(Math.sin(performance.now() / 200))
+      : 1;
+  }
+
+  private stopTimer(): void {
+    if (this.timerRafId !== null) {
+      cancelAnimationFrame(this.timerRafId);
+      this.timerRafId = null;
+    }
+    this.timerBar.visible = false;
   }
 
   private updateDebugInfo(): void {

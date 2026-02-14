@@ -46,6 +46,9 @@ export interface AdapterContext {
   sbPlayerId?: string
   bbPlayerId?: string
   winners?: WinnerInfo[]
+  cardsDealt?: boolean
+  /** Hole cards revealed at showdown, keyed by server playerId */
+  showdownHoleCards?: Map<string, [string, string]>
 }
 
 export function adaptGameState(
@@ -60,11 +63,21 @@ export function adaptGameState(
     const isHuman = sp.id === ctx.myPlayerId
     const isAllIn = sp.stack === 0 && !sp.folded && sp.bet > 0
 
+    // Use showdown holeCards if the server state doesn't include them (opponents)
+    const serverCards = sp.holeCards
+    const showdownCards = ctx.showdownHoleCards?.get(sp.id)
+    const resolvedCards = serverCards
+      ? serverCards.map(adaptCard)
+      : showdownCards
+        ? showdownCards.map(adaptCard)
+        : []
+
     return {
       id: sp.seatIndex,
       name: sp.displayName,
       chips: sp.stack,
-      holeCards: sp.holeCards ? sp.holeCards.map(adaptCard) : [],
+      holeCards: resolvedCards,
+      hasHiddenCards: !serverCards && !showdownCards && !!ctx.cardsDealt && !sp.folded,
       currentBet: sp.bet,
       totalBetThisRound: sp.bet,
       isFolded: sp.folded,
@@ -196,15 +209,24 @@ export function extractWinners(
 ): WinnerInfo[] {
   if (event.type !== 'HAND_END') return []
 
-  return event.winners.map((w) => {
+  // Aggregate by playerId so a player who wins multiple pots appears once
+  const byPlayer = new Map<string, WinnerInfo>()
+  for (const w of event.winners) {
     const player = players.find(p => p.id === w.playerId)
     const seatIndex = player?.seatIndex ?? 0
     const handDesc = showdownResults?.get(w.playerId) ?? 'Winner'
 
-    return {
-      playerIndex: seatIndex,
-      amount: w.amount,
-      handDescription: handDesc,
+    const existing = byPlayer.get(w.playerId)
+    if (existing) {
+      existing.amount += w.amount
+    } else {
+      byPlayer.set(w.playerId, {
+        playerIndex: seatIndex,
+        amount: w.amount,
+        handDescription: handDesc,
+      })
     }
-  })
+  }
+
+  return [...byPlayer.values()]
 }

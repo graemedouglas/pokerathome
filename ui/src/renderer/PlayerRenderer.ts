@@ -1,10 +1,13 @@
 import { Container, Graphics, Text, Sprite, Ticker, Texture } from 'pixi.js';
-import { Player, GamePhase } from '../types';
+import { Player, GamePhase, Card } from '../types';
 import { COLORS, CARD_WIDTH, CARD_HEIGHT, TABLE_CENTER_X, TABLE_CENTER_Y } from '../constants';
 import { CardSprite } from './CardSprite';
 import { generateAvatarTexture } from './AvatarRenderer';
 import { ChipStack } from './ChipStack';
 import { tween, easeOutBack, easeOutCubic, pulseAlpha } from '../utils/Animations';
+
+/** Dummy card used when rendering face-down backs for other players */
+const HIDDEN_CARD: Card = { suit: 'spades', rank: 'A', code: '_hidden' };
 
 const PANEL_W = 150;
 const PANEL_H = 50;
@@ -42,6 +45,9 @@ export class PlayerRenderer extends Container {
   private seatIndex: number;
   private stopPulse: (() => void) | null = null;
   private prevCardCount = 0;
+  private actionPopText: Text | null = null;
+  private actionPopTimeout: ReturnType<typeof setTimeout> | null = null;
+  private handDescText: Text;
 
   constructor(seatIndex: number, app: AppLike) {
     super();
@@ -120,6 +126,21 @@ export class PlayerRenderer extends Container {
     this.betChips.x = betOff.x;
     this.betChips.y = betOff.y;
     this.addChild(this.betChips);
+
+    // Hand description (e.g., "Pair, J's") — shown below cards for the human player
+    this.handDescText = new Text({
+      text: '',
+      style: {
+        fontSize: 11,
+        fill: 0xfbbf24,
+        fontFamily: 'Arial',
+        fontWeight: 'bold',
+        stroke: { color: 0x000000, width: 3 },
+      },
+    });
+    this.handDescText.anchor.set(0.5);
+    this.handDescText.y = -PANEL_H / 2 - 4;
+    this.addChild(this.handDescText);
   }
 
   /** Whether avatar goes on the right side of the panel */
@@ -259,7 +280,11 @@ export class PlayerRenderer extends Container {
   }
 
   private updateCards(player: Player, phase: GamePhase): void {
-    if (player.holeCards.length === 0 || player.isFolded) {
+    // Determine what to display: real cards, card backs, or nothing
+    const hasRealCards = player.holeCards.length > 0 && !player.isFolded;
+    const showBacks = !hasRealCards && player.hasHiddenCards && !player.isFolded;
+
+    if (!hasRealCards && !showBacks) {
       if (this.cards.length > 0) {
         this.cardContainer.removeChildren();
         this.cards = [];
@@ -268,8 +293,9 @@ export class PlayerRenderer extends Container {
       return;
     }
 
-    const showFace = player.isHuman || phase === 'showdown';
-    const newCount = player.holeCards.length;
+    const showFace = hasRealCards && (player.isHuman || phase === 'showdown');
+    const cardData = hasRealCards ? player.holeCards : [HIDDEN_CARD, HIDDEN_CARD];
+    const newCount = cardData.length;
 
     if (newCount !== this.prevCardCount) {
       this.cardContainer.removeChildren();
@@ -277,7 +303,7 @@ export class PlayerRenderer extends Container {
       const overlap = CARD_WIDTH * 0.35;
 
       for (let i = 0; i < newCount; i++) {
-        const card = new CardSprite(player.holeCards[i], this.app, showFace);
+        const card = new CardSprite(cardData[i], this.app, showFace);
         const targetX = (i - 0.5) * (CARD_WIDTH - overlap);
         const targetRotation = (i - 0.5) * 0.06;
 
@@ -306,11 +332,10 @@ export class PlayerRenderer extends Container {
         }, staggerDelay);
       }
       this.prevCardCount = newCount;
-    } else {
+    } else if (hasRealCards) {
       for (let i = 0; i < this.cards.length; i++) {
-        const shouldShowFace = showFace;
-        if (this.cards[i].isFaceUp !== shouldShowFace) {
-          this.cards[i].flipAnimation(this.app.ticker, shouldShowFace);
+        if (this.cards[i].isFaceUp !== showFace) {
+          this.cards[i].flipAnimation(this.app.ticker, showFace);
         }
       }
     }
@@ -327,9 +352,69 @@ export class PlayerRenderer extends Container {
     });
   }
 
+  setHandDescription(text: string): void {
+    this.handDescText.text = text;
+  }
+
   resetForNewHand(): void {
     this.prevCardCount = 0;
     this.cardContainer.removeChildren();
     this.cards = [];
+    this.handDescText.text = '';
+  }
+
+  /** Show a juicy animated pop text over the player for their action */
+  showActionPop(text: string, color: number): void {
+    // Clear any existing pop
+    if (this.actionPopText) {
+      if (this.actionPopTimeout) clearTimeout(this.actionPopTimeout);
+      this.removeChild(this.actionPopText);
+      this.actionPopText = null;
+      this.actionPopTimeout = null;
+    }
+
+    const pop = new Text({
+      text,
+      style: {
+        fontSize: 18,
+        fill: color,
+        fontFamily: 'Arial',
+        fontWeight: 'bold',
+        stroke: { color: 0x000000, width: 4 },
+      },
+    });
+    pop.anchor.set(0.5);
+    pop.y = -PANEL_H / 2 - CARD_HEIGHT - 14;
+    pop.alpha = 0;
+    pop.scale.set(0.3);
+
+    this.addChild(pop);
+    this.actionPopText = pop;
+
+    // Pop in
+    tween(this.app.ticker, {
+      target: pop, duration: 250, easing: easeOutBack,
+      props: { scaleX: 1.15, scaleY: 1.15, alpha: 1 },
+    }).then(() =>
+      tween(this.app.ticker, {
+        target: pop, duration: 120, easing: easeOutCubic,
+        props: { scaleX: 1, scaleY: 1 },
+      }),
+    );
+
+    // Fade out after hold
+    this.actionPopTimeout = setTimeout(() => {
+      const startY = pop.y;
+      tween(this.app.ticker, {
+        target: pop, duration: 500, easing: easeOutCubic,
+        props: { alpha: 0, y: startY - 12 },
+      }).then(() => {
+        if (this.actionPopText === pop) {
+          this.removeChild(pop);
+          this.actionPopText = null;
+          this.actionPopTimeout = null;
+        }
+      });
+    }, 1400);
   }
 }

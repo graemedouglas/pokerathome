@@ -4,9 +4,14 @@
   "type": "module",
   "description": "End-to-end tests for Poker@Home",
   "scripts": {
-    "test": "node test.mjs"
+    "test": "node test.mjs",
+    "test:unit": "jest"
   },
   "devDependencies": {
-    "playwright-core": "^1.58.2"
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "playwright-core": "^1.58.2",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3"
   }
 }

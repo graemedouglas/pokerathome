@@ -53,6 +53,7 @@ beforeAll(async () => {
       MIN_PLAYERS_TO_START: '2',
     },
     stdio: 'pipe',
+    shell: true, // Required on Windows where npx is npx.cmd
   })
 
   // Forward server errors for debugging

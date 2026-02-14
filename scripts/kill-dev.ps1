@@ -11,12 +11,12 @@ function Stop-DevPort {
   $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
   if ($connections) {
     $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
-    foreach ($pid in $pids) {
+    foreach ($procId in $pids) {
       try {
-        $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
         if ($proc) {
-          Write-Host "Killing $Name (port $Port, pid $pid, $($proc.ProcessName))..."
-          Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+          Write-Host "Killing $Name (port $Port, pid $procId, $($proc.ProcessName))..."
+          Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
         }
       } catch {
         # Process may have already exited

@@ -3,3 +3,4 @@ alwaysApply: true
 ---
 
 - The schema is very important. If we change anything about the Websocket protocol from the server implementation, the message schemas or payloads, we must update the schema to reflect this. People will be building bots solely off of referencing the schema, meaning if the server has drifted, they will not be able to implement an appropriate bot.
+- Any regressions or bugs we fix, ensure you build a e2e test to lock down the behaviour.

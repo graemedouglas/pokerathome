@@ -1,0 +1,9 @@
+.git
+.cursor
+.vscode
+**/node_modules
+**/dist
+**/__tests__
+*.md
+.env
+.env.*

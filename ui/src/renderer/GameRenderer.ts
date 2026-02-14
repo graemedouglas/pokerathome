@@ -14,6 +14,7 @@ import { InfoPanel } from './InfoPanel';
 import { ChatPanel, type ChatMessage } from './ChatPanel';
 import type { WsClient } from '../network/ws-client';
 import { tween, delay, easeOutBack, easeOutCubic } from '../utils/Animations';
+import { evaluateHandDescription } from '../utils/hand-evaluator';
 
 const PHASE_LABELS: Record<string, string> = {
   waiting: '',
@@ -301,6 +302,14 @@ export class GameRenderer {
       if (player) {
         this.playerRenderers[i].visible = true;
         this.playerRenderers[i].update(player, state.phase, winnerIds.has(i));
+
+        // Show hand description for human player
+        if (player.isHuman && player.holeCards.length === 2 && !player.isFolded) {
+          const desc = evaluateHandDescription(player.holeCards, state.communityCards);
+          this.playerRenderers[i].setHandDescription(desc ?? '');
+        } else {
+          this.playerRenderers[i].setHandDescription('');
+        }
       } else {
         this.playerRenderers[i].visible = false;
       }
@@ -323,7 +332,7 @@ export class GameRenderer {
       this.statusText.text = '';
     }
 
-    if (state.phase === 'showdown' && state.winners.length > 0) {
+    if (state.winners.length > 0) {
       const lines = state.winners.map(w => {
         const player = state.players.find(p => p.seatIndex === w.playerIndex);
         return player
@@ -339,7 +348,8 @@ export class GameRenderer {
       this.winnerBannerBg.roundRect(-tw / 2, -th / 2, tw, th, 8);
       this.winnerBannerBg.fill({ color: 0x000000, alpha: 0.6 });
 
-      this.winnerBanner.visible = true;
+      // Don't show yet — animateWinners will pop it in
+      this.winnerBanner.visible = false;
     } else {
       this.winnerBanner.visible = false;
     }
@@ -403,14 +413,35 @@ export class GameRenderer {
     this.infoPanel.updateStats(handsPlayed, handsWon, biggestPot);
   }
 
-  waitForHumanAction(available: AvailableActions, pot: number): Promise<PlayerAction> {
+  waitForHumanAction(available: AvailableActions, pot: number, timeToActMs?: number): Promise<PlayerAction> {
     return new Promise((resolve) => {
       this.humanActionResolve = resolve;
       this.actionPanel.show(available, pot, (action: PlayerAction) => {
         this.humanActionResolve = null;
         this.actionPanel.hide();
         resolve(action);
-      });
+      }, timeToActMs);
     });
+  }
+
+  /** Force-cancel a pending human action (e.g. on timeout) */
+  cancelHumanAction(): void {
+    this.actionPanel.hide();
+    if (this.humanActionResolve) {
+      this.humanActionResolve({ type: 'fold' }); // dummy; won't be sent to server
+      this.humanActionResolve = null;
+    }
+  }
+
+  /** Update the action timer display */
+  updateTimer(remainingMs: number): void {
+    this.actionPanel.updateTimer(remainingMs);
+  }
+
+  /** Show action pop text on a player seat */
+  showPlayerActionPop(seatIndex: number, text: string, color: number): void {
+    if (seatIndex >= 0 && seatIndex < this.playerRenderers.length) {
+      this.playerRenderers[seatIndex].showActionPop(text, color);
+    }
   }
 }

@@ -23,6 +23,7 @@ export interface Player {
   name: string
   chips: number
   holeCards: Card[]
+  hasHiddenCards: boolean
   currentBet: number
   totalBetThisRound: number
   isFolded: boolean

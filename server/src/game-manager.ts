@@ -582,7 +582,7 @@ export class GameManager {
       return { ok: false, error: `Unknown bot type: ${botType}` };
     }
 
-    const serverUrl = `ws://localhost:${config.PORT}/ws`;
+    const serverUrl = `ws://${config.HOST}:${config.PORT}/ws`;
     const bot = new bots.BotClient({
       serverUrl,
       gameId,

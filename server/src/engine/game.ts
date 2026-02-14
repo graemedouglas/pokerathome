@@ -361,6 +361,7 @@ export function processAction(
     }
     case 'CALL': {
       const callAmount = Math.min(state.currentBet - player.bet, player.stack);
+      actionAmount = callAmount; // Include in PLAYER_ACTION event
       const willBeAllIn = callAmount >= player.stack;
       state = applyBet(state, playerId, callAmount);
       if (willBeAllIn) state = markAllIn(state, playerId);
@@ -391,6 +392,7 @@ export function processAction(
     }
     case 'ALL_IN': {
       const allInAmount = player.stack;
+      actionAmount = allInAmount; // Include in PLAYER_ACTION event
       const newBet = player.bet + allInAmount;
       const isRaise = newBet > state.currentBet;
       state = applyBet(state, playerId, allInAmount);

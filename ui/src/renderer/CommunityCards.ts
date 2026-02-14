@@ -90,45 +90,76 @@ export class CommunityCards extends Container {
     // Brief suspense pause
     await delay(300);
 
-    for (let i = 0; i < newCards.length; i++) {
-      const idx = existingCount + i;
-      const card = new CardSprite(newCards[i], this.app, false);
+    if (newCards.length >= 3) {
+      // --- FLOP: sweep all 3 cards in together with staggered starts ---
+      const sprites: CardSprite[] = [];
+      for (let i = 0; i < newCards.length; i++) {
+        const idx = existingCount + i;
+        const card = new CardSprite(newCards[i], this.app, false);
+        const targetX = startX + idx * gap;
 
-      const targetX = startX + idx * gap;
+        card.x = targetX;
+        card.y = -80;
+        card.alpha = 0;
+        card.scale.set(0.6);
 
-      // Start off-screen above, face-down
-      card.x = targetX;
-      card.y = -80;
-      card.alpha = 0;
-      card.scale.set(0.6);
+        this.cards.push(card);
+        this.addChild(card);
+        sprites.push(card);
 
-      this.cards.push(card);
-      this.addChild(card);
+        // Stagger the drop by 100ms per card
+        setTimeout(() => {
+          tween(this.app.ticker, {
+            target: card, duration: 280, easing: easeOutCubic,
+            props: { y: 0, alpha: 1, scaleX: 1, scaleY: 1 },
+          });
+        }, i * 100);
+      }
 
-      // Whoosh down into position
-      await tween(this.app.ticker, {
-        target: card, duration: 300, easing: easeOutCubic,
-        props: { y: 0, alpha: 1, scaleX: 1, scaleY: 1 },
-      });
+      // Wait for all drops to land (last card starts at 200ms, anim 280ms)
+      await delay((newCards.length - 1) * 100 + 300);
 
-      // Suspenseful pause before flip
-      await delay(newCards.length === 1 ? 400 : 150);
+      // Flip all at once
+      await Promise.all(sprites.map(card => card.flipAnimation(this.app.ticker, true)));
 
-      // Dramatic flip
-      await card.flipAnimation(this.app.ticker, true);
+      // Unified bounce
+      await Promise.all(sprites.map(card =>
+        tween(this.app.ticker, { target: card, duration: 120, props: { scaleX: 1.06, scaleY: 1.06 } }),
+      ));
+      await Promise.all(sprites.map(card =>
+        tween(this.app.ticker, { target: card, duration: 150, easing: easeOutCubic, props: { scaleX: 1, scaleY: 1 } }),
+      ));
+    } else {
+      // --- TURN / RIVER: single card, dramatic pacing ---
+      for (let i = 0; i < newCards.length; i++) {
+        const idx = existingCount + i;
+        const card = new CardSprite(newCards[i], this.app, false);
+        const targetX = startX + idx * gap;
 
-      // Small bounce after flip
-      await tween(this.app.ticker, {
-        target: card, duration: 120,
-        props: { scaleX: 1.06, scaleY: 1.06 },
-      });
-      await tween(this.app.ticker, {
-        target: card, duration: 150, easing: easeOutCubic,
-        props: { scaleX: 1, scaleY: 1 },
-      });
+        card.x = targetX;
+        card.y = -80;
+        card.alpha = 0;
+        card.scale.set(0.6);
 
-      if (i < newCards.length - 1) {
-        await delay(100);
+        this.cards.push(card);
+        this.addChild(card);
+
+        await tween(this.app.ticker, {
+          target: card, duration: 300, easing: easeOutCubic,
+          props: { y: 0, alpha: 1, scaleX: 1, scaleY: 1 },
+        });
+
+        await delay(400);
+        await card.flipAnimation(this.app.ticker, true);
+
+        await tween(this.app.ticker, {
+          target: card, duration: 120,
+          props: { scaleX: 1.06, scaleY: 1.06 },
+        });
+        await tween(this.app.ticker, {
+          target: card, duration: 150, easing: easeOutCubic,
+          props: { scaleX: 1, scaleY: 1 },
+        });
       }
     }
 
