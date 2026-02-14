@@ -9,3 +9,4 @@ __pycache__
 schema/generated/
 e2e/screenshots/
 scripts/deploy.env
+docker/.htpasswd

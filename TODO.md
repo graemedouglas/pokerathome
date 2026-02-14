@@ -19,6 +19,8 @@
 
 - Spectators broken. Should not be at table, should not be waited on for action
 
+- Clean up game management and close the loop - make it so we don't have to constantly wipe the state db
+
 # BUGS
 
 - Ben's browser-join bug "you are already in a game" - probably sticky session, check localStorage
