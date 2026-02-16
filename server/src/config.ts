@@ -15,6 +15,9 @@ const envSchema = z.object({
 
   /** Minimum number of ready players to start a game */
   MIN_PLAYERS_TO_START: z.coerce.number().int().min(2).default(2),
+
+  /** Spectator card visibility mode */
+  SPECTATOR_CARD_VISIBILITY: z.enum(['immediate', 'delayed', 'showdown']).default('delayed'),
 });
 
 export type Config = z.infer<typeof envSchema>;

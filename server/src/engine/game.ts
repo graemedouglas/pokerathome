@@ -17,6 +17,7 @@ import { createDeck, shuffle, deal } from './deck.js';
 import { evaluateShowdown } from './hand-evaluator.js';
 import { calculatePots, distributePots } from './pot.js';
 import { getAvailableActions } from './action-validator.js';
+import { config } from '../config.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Engine-internal types
@@ -718,6 +719,47 @@ function getFirstToActPostFlop(state: EngineState): EnginePlayer | null {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Determines which cards should be visible to a viewer based on their role and config.
+ */
+function determineVisibleCards(
+  player: EnginePlayer,
+  viewerPlayerId: string,
+  isSpectator: boolean,
+  state: EngineState
+): [string, string] | null {
+  // Players always see their own cards
+  if (player.id === viewerPlayerId) {
+    return player.holeCards;
+  }
+
+  // Non-spectators see cards at showdown or when revealed
+  if (!isSpectator) {
+    return state.stage === 'SHOWDOWN' ? player.holeCards : null;
+  }
+
+  // Spectator visibility based on config
+  const mode = config.SPECTATOR_CARD_VISIBILITY;
+
+  switch (mode) {
+    case 'immediate':
+      return player.holeCards;
+
+    case 'showdown':
+      return state.stage === 'SHOWDOWN' || !state.handInProgress
+        ? player.holeCards
+        : null;
+
+    case 'delayed':
+      // When delayed mode is active, GameManager passes previous hand state
+      // This function naturally sees the previous hand's cards
+      return player.holeCards;
+
+    default:
+      return null;
+  }
+}
+
+/**
  * Convert engine state to a client-facing GameState for a specific viewer.
  * Hides opponent hole cards and strips engine-internal fields.
  */
@@ -742,10 +784,7 @@ export function toClientGameState(state: EngineState, viewerPlayerId: string): G
       bet: p.bet,
       potShare: p.potShare,
       folded: p.folded,
-      holeCards:
-        isSpectator || p.id === viewerPlayerId
-          ? p.holeCards
-          : null,
+      holeCards: determineVisibleCards(p, viewerPlayerId, isSpectator, state),
       connected: p.connected,
     })),
     dealerSeatIndex: state.dealerSeatIndex,
@@ -790,7 +829,7 @@ function findNextPlayer(
   return candidates[0] ?? null;
 }
 
-function cloneState(state: EngineState): EngineState {
+export function cloneState(state: EngineState): EngineState {
   return {
     ...state,
     communityCards: [...state.communityCards],

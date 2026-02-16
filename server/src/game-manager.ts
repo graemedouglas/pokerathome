@@ -19,6 +19,7 @@ import {
   processAction,
   toClientGameState,
   buildGameStatePayload,
+  cloneState,
   type EngineState,
   type Transition,
   type GameConfig,
@@ -44,6 +45,7 @@ interface ActiveGame {
   actionTimer: ReturnType<typeof setTimeout> | null;
   warningTimers: ReturnType<typeof setTimeout>[];
   riggedDeck: string[] | null;
+  previousHandState: EngineState | null; // Track previous hand for delayed spectator view
 }
 
 interface ActionResult {
@@ -90,7 +92,7 @@ export class GameManager {
             this.logger.error({ err, gameId: row.id, playerId: gp.player_id }, 'Failed to restore player');
           }
         }
-        this.activeGames.set(row.id, { state: currentState, actionTimer: null, warningTimers: [], riggedDeck: null });
+        this.activeGames.set(row.id, { state: currentState, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null });
         this.logger.info({ gameId: row.id, playerCount: players.length }, 'Loaded waiting game');
       }
     }
@@ -115,7 +117,7 @@ export class GameManager {
     if (this.activeGames.has(gameId)) return;
 
     const state = this.createEngineStateFromRow(row);
-    this.activeGames.set(gameId, { state, actionTimer: null, warningTimers: [], riggedDeck: null });
+    this.activeGames.set(gameId, { state, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null });
     this.logger.info({ gameId }, 'Game activated');
   }
 
@@ -355,11 +357,19 @@ export class GameManager {
     const active = this.activeGames.get(gameId);
     if (!active) return undefined;
 
-    const lastEvent = active.state.handEvents[active.state.handEvents.length - 1];
+    const player = active.state.players.find(p => p.id === playerId);
+    const isSpectator = player?.role === 'spectator';
+    const useDelayedState =
+      isSpectator &&
+      config.SPECTATOR_CARD_VISIBILITY === 'delayed' &&
+      active.previousHandState !== null;
+
+    const stateToSend = useDelayedState ? active.previousHandState! : active.state;
+    const lastEvent = stateToSend.handEvents[stateToSend.handEvents.length - 1];
     if (!lastEvent) return undefined;
 
     return buildGameStatePayload(
-      active.state,
+      stateToSend,
       lastEvent,
       playerId,
       active.state.activePlayerId === playerId ? config.ACTION_TIMEOUT_MS : undefined
@@ -386,15 +396,26 @@ export class GameManager {
       active.state = transition.state;
 
       // Broadcast personalized state to all players in the game
-      sessions.broadcastPersonalized(gameId, (viewerId) => ({
-        action: 'gameState',
-        payload: buildGameStatePayload(
-          active.state,
-          transition.event,
-          viewerId,
-          config.ACTION_TIMEOUT_MS
-        ),
-      }));
+      sessions.broadcastPersonalized(gameId, (viewerId) => {
+        const viewer = active.state.players.find(p => p.id === viewerId);
+        const isSpectator = viewer?.role === 'spectator';
+        const useDelayedState =
+          isSpectator &&
+          config.SPECTATOR_CARD_VISIBILITY === 'delayed' &&
+          active.previousHandState !== null;
+
+        const stateToSend = useDelayedState ? active.previousHandState! : active.state;
+
+        return {
+          action: 'gameState',
+          payload: buildGameStatePayload(
+            stateToSend,
+            transition.event,
+            viewerId,
+            config.ACTION_TIMEOUT_MS
+          ),
+        };
+      });
     }
 
     // After all transitions, check state
@@ -418,6 +439,9 @@ export class GameManager {
     const handEndEvent = active.state.handEvents.find((e) => e.type === 'HAND_END');
     const winners = handEndEvent && 'winners' in handEndEvent ? handEndEvent.winners : [];
     saveHandHistory(gameId, active.state.handNumber, active.state.handEvents, winners);
+
+    // Store completed hand state for delayed spectator viewing
+    active.previousHandState = cloneState(active.state);
 
     this.logger.info(
       { gameId, handNumber: active.state.handNumber, winners: winners.length },

@@ -57,7 +57,16 @@ export function adaptGameState(
 ): GameState {
   const phase = STAGE_MAP[server.stage] ?? 'waiting'
 
-  const players: Player[] = server.players.map((sp) => {
+  // Extract spectators (sorted alphabetically)
+  const spectators = server.players
+    .filter(sp => sp.role === 'spectator')
+    .map(sp => sp.displayName)
+    .sort()
+
+  // Filter out spectators from active players
+  const players: Player[] = server.players
+    .filter(sp => sp.role !== 'spectator')
+    .map((sp) => {
     const isDealer = sp.seatIndex === server.dealerSeatIndex
     const isCurrent = sp.id === server.activePlayerId
     const isHuman = sp.id === ctx.myPlayerId
@@ -100,6 +109,7 @@ export function adaptGameState(
   return {
     phase,
     players,
+    spectators,
     communityCards: server.communityCards.map(adaptCard),
     pot: server.pot,
     currentPlayerIndex: currentPlayerIndex >= 0 ? currentPlayerIndex : 0,

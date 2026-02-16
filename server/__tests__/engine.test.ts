@@ -12,6 +12,7 @@ import {
   type EngineState,
   type EnginePlayer,
 } from '../src/engine/game';
+import { config } from '../src/config';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Deck
@@ -852,5 +853,104 @@ describe('Post-flop betting', () => {
     // Sending RAISE instead of BET should be INVALID
     const raiseError = validateAction(current, activeId, 'RAISE', bet!.min);
     expect(raiseError).not.toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Spectator Card Visibility
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Spectator card visibility', () => {
+  function createTestState(): EngineState {
+    let state = createInitialState({
+      gameId: 'test-spectator',
+      gameName: 'Spectator Test',
+      gameType: 'cash',
+      maxPlayers: 6,
+      smallBlindAmount: 10,
+      bigBlindAmount: 20,
+      startingStack: 1000,
+    });
+    const p1 = addPlayer(state, 'player1', 'Player 1');
+    state = p1.state;
+    const p2 = addPlayer(state, 'player2', 'Player 2');
+    state = p2.state;
+    const spec = addPlayer(state, 'spectator1', 'Spectator 1', 'spectator');
+    state = spec.state;
+
+    state = setPlayerReady(state, 'player1', true);
+    state = setPlayerReady(state, 'player2', true);
+
+    const transitions = startHand(state);
+    return transitions[transitions.length - 1].state;
+  }
+
+  test('player sees their own hole cards', () => {
+    const state = createTestState();
+    const clientState = toClientGameState(state, 'player1');
+    const player1 = clientState.players.find(p => p.id === 'player1');
+    expect(player1?.holeCards).not.toBeNull();
+    expect(player1?.holeCards).toHaveLength(2);
+  });
+
+  test('player does not see opponent hole cards during hand', () => {
+    const state = createTestState();
+    const clientState = toClientGameState(state, 'player1');
+    const player2 = clientState.players.find(p => p.id === 'player2');
+    expect(player2?.holeCards).toBeNull();
+  });
+
+  test('player sees opponent cards at showdown', () => {
+    let state = createTestState();
+    // Fast-forward to showdown by folding all but one player, then having them check down
+    // For simplicity, we'll just set the stage to SHOWDOWN
+    state = { ...state, stage: 'SHOWDOWN' };
+
+    const clientState = toClientGameState(state, 'player1');
+    const player2 = clientState.players.find(p => p.id === 'player2');
+    expect(player2?.holeCards).not.toBeNull();
+  });
+
+  test('spectator card visibility depends on config', () => {
+    const state = createTestState();
+    const clientState = toClientGameState(state, 'spectator1');
+    const player1 = clientState.players.find(p => p.id === 'player1');
+    const player2 = clientState.players.find(p => p.id === 'player2');
+
+    const mode = config.SPECTATOR_CARD_VISIBILITY;
+
+    if (mode === 'immediate') {
+      // Spectators see all cards immediately
+      expect(player1?.holeCards).not.toBeNull();
+      expect(player2?.holeCards).not.toBeNull();
+    } else if (mode === 'showdown') {
+      // Spectators only see cards at showdown
+      if (state.stage === 'SHOWDOWN' || !state.handInProgress) {
+        expect(player1?.holeCards).not.toBeNull();
+        expect(player2?.holeCards).not.toBeNull();
+      } else {
+        expect(player1?.holeCards).toBeNull();
+        expect(player2?.holeCards).toBeNull();
+      }
+    } else if (mode === 'delayed') {
+      // In delayed mode, toClientGameState shows current hand cards
+      // GameManager is responsible for passing previous hand state
+      expect(player1?.holeCards).not.toBeNull();
+      expect(player2?.holeCards).not.toBeNull();
+    }
+  });
+
+  test('spectator sees their own "cards" as null (spectators have no cards)', () => {
+    const state = createTestState();
+    const clientState = toClientGameState(state, 'spectator1');
+    const spectator = clientState.players.find(p => p.id === 'spectator1');
+    expect(spectator?.holeCards).toBeNull();
+  });
+
+  test('non-spectator player does not see spectator cards (spectators have none)', () => {
+    const state = createTestState();
+    const clientState = toClientGameState(state, 'player1');
+    const spectator = clientState.players.find(p => p.id === 'spectator1');
+    expect(spectator?.holeCards).toBeNull();
   });
 });

@@ -11,6 +11,7 @@ import { SettingsPanel } from './SettingsPanel';
 import { clearTextureCache } from './CardSprite';
 import { GameSettings } from '../settings/GameSettings';
 import { InfoPanel } from './InfoPanel';
+import { SpectatorPanel } from './SpectatorPanel';
 import { ChatPanel, type ChatMessage } from './ChatPanel';
 import type { WsClient } from '../network/ws-client';
 import { tween, delay, easeOutBack, easeOutCubic } from '../utils/Animations';
@@ -38,6 +39,7 @@ export class GameRenderer {
   private actionPanel!: ActionPanel;
   private settingsPanel!: SettingsPanel;
   private infoPanel!: InfoPanel;
+  private spectatorPanel!: SpectatorPanel;
   private chatPanel!: ChatPanel;
   private isSpectator = false;
   private spectatorText!: Text;
@@ -250,6 +252,10 @@ export class GameRenderer {
     this.infoPanel = new InfoPanel();
     this.uiLayer.addChild(this.infoPanel);
 
+    // Spectator panel (bottom-right)
+    this.spectatorPanel = new SpectatorPanel();
+    this.uiLayer.addChild(this.spectatorPanel);
+
     // Spectator indicator
     this.spectatorText = new Text({
       text: 'SPECTATING',
@@ -353,6 +359,9 @@ export class GameRenderer {
     } else {
       this.winnerBanner.visible = false;
     }
+
+    // Update spectator panel
+    this.spectatorPanel.update(state.spectators);
   }
 
   /** Animate community card reveal (called by Game instead of direct state update) */

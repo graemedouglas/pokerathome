@@ -228,4 +228,13 @@ async function main() {
   process.exit(exitCode)
 }
 
+// TODO: Add spectator UI test
+// Spectator test would:
+// 1. Create a game
+// 2. Join player 1 as regular player
+// 3. Join player 2 as spectator (click "Spectate" button)
+// 4. Verify spectator panel appears on player 1's screen
+// 5. Verify spectator cannot interact (no action panel)
+// 6. Take screenshots for verification
+
 main()

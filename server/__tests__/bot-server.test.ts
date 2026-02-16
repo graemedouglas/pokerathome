@@ -51,6 +51,7 @@ beforeAll(async () => {
       ACTION_TIMEOUT_MS: '30000',
       HAND_DELAY_MS: '500',
       MIN_PLAYERS_TO_START: '2',
+      SPECTATOR_CARD_VISIBILITY: 'delayed',
     },
     stdio: 'pipe',
     shell: true, // Required on Windows where npx is npx.cmd

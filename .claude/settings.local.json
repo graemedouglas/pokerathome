@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --filter @pokerathome/server test)",
+      "Bash(ls:*)",
+      "Bash(pnpm --filter @pokerathome/server test:*)"
+    ]
+  }
+}

@@ -53,6 +53,7 @@ export interface AvailableActions {
 export interface GameState {
   phase: GamePhase
   players: Player[]
+  spectators: string[]
   communityCards: Card[]
   pot: number
   currentPlayerIndex: number

@@ -413,3 +413,74 @@ describe('extractWinners aggregation', () => {
     expect(result[0].handDescription).toBe('Pair, J\'s')
   })
 })
+
+// ═════════════════════════════════════════════════════════════════════════════════
+// Spectator Separation
+// ═════════════════════════════════════════════════════════════════════════════════
+
+describe('Spectator separation', () => {
+  test('spectators filtered out of players array', () => {
+    const server = makeServerState({
+      players: [
+        makePlayer({ id: PLAYER_A_ID, seatIndex: 0, role: 'player', displayName: 'Alice' }),
+        makePlayer({ id: PLAYER_B_ID, seatIndex: 1, role: 'player', displayName: 'Bob' }),
+        makePlayer({ id: 'spec1-uuid', seatIndex: 6, role: 'spectator', displayName: 'Spectator1', stack: 0 }),
+        makePlayer({ id: 'spec2-uuid', seatIndex: 7, role: 'spectator', displayName: 'Spectator2', stack: 0 }),
+      ],
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    expect(ui.players).toHaveLength(2)
+    expect(ui.spectators).toHaveLength(2)
+    expect(ui.spectators).toContain('Spectator1')
+    expect(ui.spectators).toContain('Spectator2')
+  })
+
+  test('spectators array is sorted alphabetically', () => {
+    const server = makeServerState({
+      players: [
+        makePlayer({ id: PLAYER_A_ID, seatIndex: 0, role: 'player', displayName: 'Alice' }),
+        makePlayer({ id: 'spec1-uuid', seatIndex: 6, role: 'spectator', displayName: 'Zack', stack: 0 }),
+        makePlayer({ id: 'spec2-uuid', seatIndex: 7, role: 'spectator', displayName: 'Alice Spectator', stack: 0 }),
+        makePlayer({ id: 'spec3-uuid', seatIndex: 8, role: 'spectator', displayName: 'Bob Spectator', stack: 0 }),
+      ],
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    expect(ui.spectators).toEqual(['Alice Spectator', 'Bob Spectator', 'Zack'])
+  })
+
+  test('empty spectators array when no spectators', () => {
+    const server = makeServerState({
+      players: [
+        makePlayer({ id: PLAYER_A_ID, seatIndex: 0, role: 'player', displayName: 'Alice' }),
+        makePlayer({ id: PLAYER_B_ID, seatIndex: 1, role: 'player', displayName: 'Bob' }),
+      ],
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    expect(ui.spectators).toHaveLength(0)
+    expect(ui.spectators).toEqual([])
+  })
+
+  test('spectators are not included in player seatIndex lookup', () => {
+    const server = makeServerState({
+      players: [
+        makePlayer({ id: PLAYER_A_ID, seatIndex: 0, role: 'player', displayName: 'Alice' }),
+        makePlayer({ id: PLAYER_B_ID, seatIndex: 1, role: 'player', displayName: 'Bob' }),
+        makePlayer({ id: 'spec1-uuid', seatIndex: 6, role: 'spectator', displayName: 'Spectator', stack: 0 }),
+      ],
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    // Only players at seats 0 and 1 should be in the players array
+    const seatIndices = ui.players.map(p => p.seatIndex)
+    expect(seatIndices).toContain(0)
+    expect(seatIndices).toContain(1)
+    expect(seatIndices).not.toContain(6)
+  })
+})

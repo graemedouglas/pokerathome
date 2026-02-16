@@ -154,7 +154,7 @@ export function removeGamePlayer(gameId: string, playerId: string): void {
 
 export function getGamePlayerCount(gameId: string): number {
   const row = getDb().prepare(
-    `SELECT COUNT(*) as count FROM game_players WHERE game_id = ?`
+    `SELECT COUNT(*) as count FROM game_players WHERE game_id = ? AND role = 'player'`
   ).get(gameId) as { count: number };
   return row.count;
 }
