@@ -548,6 +548,16 @@ export class GameManager {
       'Hand completed'
     );
 
+    // Save replay incrementally after each hand
+    if (active.recorder && active.recorder.entryCount > 0) {
+      try {
+        const replayData = active.recorder.toReplayFile();
+        saveReplayFile(gameId, replayData);
+      } catch (err) {
+        this.logger.error({ err, gameId }, 'Failed to save replay after hand');
+      }
+    }
+
     // Check if game should continue
     const playersWithChips = active.state.players.filter(
       (p) => p.role === 'player' && p.stack > 0
