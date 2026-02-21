@@ -58,10 +58,17 @@ export function handleIdentify(
   let currentGame: object | undefined;
 
   if (gamePlayer) {
-    sessions.setGameId(playerId, gamePlayer.game_id);
-    currentGame = gameManager.getReconnectState(playerId, gamePlayer.game_id);
-    gameManager.setPlayerConnected(gamePlayer.game_id, playerId, true);
-    logger.info({ playerId, gameId: gamePlayer.game_id }, 'Player reconnected to game');
+    if (gamePlayer.role === 'spectator') {
+      // Spectators don't reconnect — clean up stale record and let them rejoin fresh
+      gameManager.removePlayer(gamePlayer.game_id, playerId, sessions);
+      sessions.setGameId(playerId, null);
+      logger.info({ playerId, gameId: gamePlayer.game_id }, 'Stale spectator record cleaned up on identify');
+    } else {
+      sessions.setGameId(playerId, gamePlayer.game_id);
+      currentGame = gameManager.getReconnectState(playerId, gamePlayer.game_id);
+      gameManager.setPlayerConnected(gamePlayer.game_id, playerId, true);
+      logger.info({ playerId, gameId: gamePlayer.game_id }, 'Player reconnected to game');
+    }
   }
 
   sessions.send(playerId, {

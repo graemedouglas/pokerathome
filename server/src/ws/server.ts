@@ -26,11 +26,21 @@ export function registerWebSocket(
     socket.on('close', () => {
       const playerId = sessionManager.disconnect(socket);
       if (playerId) {
-        // Find the player's game and mark them disconnected
         const session = sessionManager.getByPlayerId(playerId);
         if (session?.gameId) {
-          gameManager.setPlayerConnected(session.gameId, playerId, false);
-          logger.info({ playerId, gameId: session.gameId }, 'Player disconnected from game');
+          const engineState = gameManager.getActiveGameState(session.gameId);
+          const player = engineState?.players.find(p => p.id === playerId);
+
+          if (player?.role === 'spectator') {
+            // Spectators have no game state to preserve — remove on disconnect
+            const gameId = session.gameId;
+            gameManager.removePlayer(gameId, playerId, sessionManager);
+            sessionManager.setGameId(playerId, null);
+            logger.info({ playerId, gameId }, 'Spectator removed on disconnect');
+          } else {
+            gameManager.setPlayerConnected(session.gameId, playerId, false);
+            logger.info({ playerId, gameId: session.gameId }, 'Player disconnected from game');
+          }
         }
       }
     });
