@@ -122,7 +122,7 @@ export function handleJoinGame(
   // Send gameJoined to the joining player
   sessions.send(session.playerId, {
     action: 'gameJoined',
-    payload: { gameState: result.gameState },
+    payload: { gameState: result.gameState, handEvents: result.handEvents },
   });
 
   // Broadcast PLAYER_JOINED event to others in the game

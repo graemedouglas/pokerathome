@@ -48,7 +48,7 @@ async function main() {
   await renderer.init(result.isSpectator, ws)
 
   // Attach renderer — this flushes the initial state + any buffered messages
-  controller.attachRenderer(renderer, result.initialGameState ?? undefined)
+  controller.attachRenderer(renderer, result.initialGameState ?? undefined, result.handHistory)
 
   // Re-register event handler now that renderer is available for logging
   controller.onEvent((event) => {

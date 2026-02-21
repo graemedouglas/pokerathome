@@ -1,4 +1,4 @@
-import type { ServerMessage } from '@pokerathome/schema'
+import type { ServerMessage, Event as ServerEvent } from '@pokerathome/schema'
 import type { GameListItem, GameStateUpdatePayload } from '@pokerathome/schema'
 import { WsClient } from '../network/ws-client'
 
@@ -8,6 +8,7 @@ export interface LobbyResult {
   gameId: string
   isSpectator: boolean
   initialGameState?: GameStateUpdatePayload
+  handHistory?: ServerEvent[]
 }
 
 type LobbyScreen = 'connect' | 'games' | 'waiting'
@@ -20,6 +21,7 @@ export class Lobby {
   private reconnectToken = ''
   private currentGameId = ''
   private isSpectator = false
+  private handHistory?: ServerEvent[]
   private currentScreen: LobbyScreen = 'connect'
   private removeMessageHandler?: () => void
 
@@ -265,7 +267,8 @@ export class Lobby {
 
       case 'gameJoined': {
         if (this.isSpectator) {
-          const gsPayload = (msg.payload as { gameState: GameStateUpdatePayload['gameState'] })
+          const gsPayload = (msg.payload as { gameState: GameStateUpdatePayload['gameState']; handEvents?: ServerEvent[] })
+          this.handHistory = gsPayload.handEvents
           this.finish({ gameState: gsPayload.gameState, event: { type: 'PLAYER_JOINED', playerId: this.playerId, displayName: '', seatIndex: 0 } } as GameStateUpdatePayload)
         } else {
           this.showWaitingScreen()
@@ -319,6 +322,7 @@ export class Lobby {
       gameId: this.currentGameId,
       isSpectator: this.isSpectator,
       initialGameState,
+      handHistory: this.handHistory,
     })
     this.resolve = null
   }

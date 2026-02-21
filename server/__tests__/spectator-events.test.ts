@@ -548,3 +548,67 @@ describe('joinGame initial state — spectator visibility (Bug 5 fix)', () => {
     expect(visibleCount).toBeGreaterThan(0);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Mid-hand spectator join — hand history sent (flop-sent-early regression)
+//
+// When a spectator joins mid-hand, the server sends state.handEvents so the UI
+// controller can replay them to populate HandContext (cardsDealt, blinds, etc.)
+// without animations. This replaces the previous cardsDealt inference hack.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('mid-hand spectator join — hand history sent (flop-sent-early regression)', () => {
+  test('handEvents contains HAND_START, BLINDS_POSTED, DEAL during active hand', () => {
+    const state = createSpectatorGame();
+    const { transitions } = playHandToShowdown(state, RIGGED_DECK);
+
+    // Get state right after DEAL (mid-hand, PRE_FLOP)
+    const dealT = transitions.find(t => t.event.type === 'DEAL');
+    expect(dealT).toBeDefined();
+    const midHandState = dealT!.state;
+
+    expect(midHandState.handInProgress).toBe(true);
+    expect(midHandState.handEvents.length).toBeGreaterThanOrEqual(3);
+    expect(midHandState.handEvents.some(e => e.type === 'HAND_START')).toBe(true);
+    expect(midHandState.handEvents.some(e => e.type === 'BLINDS_POSTED')).toBe(true);
+    expect(midHandState.handEvents.some(e => e.type === 'DEAL')).toBe(true);
+  });
+
+  test('handEvents BLINDS_POSTED contains correct player IDs for SB/BB indicators', () => {
+    const state = createSpectatorGame();
+    const { transitions } = playHandToShowdown(state, RIGGED_DECK);
+
+    const dealT = transitions.find(t => t.event.type === 'DEAL');
+    const midHandState = dealT!.state;
+
+    const blindsEvent = midHandState.handEvents.find(e => e.type === 'BLINDS_POSTED');
+    expect(blindsEvent).toBeDefined();
+    if (blindsEvent?.type === 'BLINDS_POSTED') {
+      expect(blindsEvent.smallBlind.playerId).toBeTruthy();
+      expect(blindsEvent.bigBlind.playerId).toBeTruthy();
+      // Both should be actual players (not spectator)
+      expect(['player-1', 'player-2']).toContain(blindsEvent.smallBlind.playerId);
+      expect(['player-1', 'player-2']).toContain(blindsEvent.bigBlind.playerId);
+    }
+  });
+
+  test('handEvents is empty before any hand starts', () => {
+    const state = createSpectatorGame();
+    expect(state.handEvents.length).toBe(0);
+    expect(state.handInProgress).toBe(false);
+  });
+
+  test('handEvents accumulates PLAYER_ACTION events during play', () => {
+    const state = createSpectatorGame();
+    const { transitions } = playHandToShowdown(state, RIGGED_DECK);
+
+    // Get state at FLOP (after PRE_FLOP actions)
+    const flopT = transitions.find(t => t.event.type === 'FLOP');
+    expect(flopT).toBeDefined();
+    const flopState = flopT!.state;
+
+    // Should have at least one PLAYER_ACTION from PRE_FLOP betting
+    const actionEvents = flopState.handEvents.filter(e => e.type === 'PLAYER_ACTION');
+    expect(actionEvents.length).toBeGreaterThan(0);
+  });
+});

@@ -311,6 +311,7 @@ export type GameListPayload = z.infer<typeof GameListPayload>;
 
 export const GameJoinedPayload = z.object({
   gameState: GameState,
+  handEvents: z.array(Event).optional(),
 });
 export type GameJoinedPayload = z.infer<typeof GameJoinedPayload>;
 

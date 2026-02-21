@@ -122,8 +122,14 @@ export class GameController {
   }
 
   /** Attach the renderer and flush any buffered messages. */
-  attachRenderer(renderer: GameRenderer, initialState?: GameStateUpdatePayload): void {
+  attachRenderer(renderer: GameRenderer, initialState?: GameStateUpdatePayload, handHistory?: ServerEvent[]): void {
     this.renderer = renderer
+
+    // Replay hand history to populate HandContext (cardsDealt, blinds, etc.)
+    // without triggering animations. This handles spectators joining mid-hand.
+    if (handHistory?.length) {
+      this.replayHandHistory(handHistory)
+    }
 
     // Process initial state first (if any)
     if (initialState) {
@@ -148,6 +154,32 @@ export class GameController {
         .catch(err => console.error('[GameController] buffered message error:', err))
     }
     this.buffered = []
+  }
+
+  /**
+   * Replay hand history events to populate HandContext (cardsDealt, blinds, etc.)
+   * without triggering animations. Called when a spectator joins mid-hand.
+   */
+  private replayHandHistory(events: ServerEvent[]): void {
+    for (const event of events) {
+      if (event.type === 'HAND_START') {
+        this.hand = freshHandContext()
+      }
+      const blindInfo = extractBlindPlayers(event)
+      if (blindInfo.sbPlayerId) this.hand.sbPlayerId = blindInfo.sbPlayerId
+      if (blindInfo.bbPlayerId) this.hand.bbPlayerId = blindInfo.bbPlayerId
+      if (event.type === 'DEAL') {
+        this.hand.cardsDealt = true
+      }
+      if (event.type === 'SHOWDOWN') {
+        for (const r of event.results) {
+          this.hand.showdownResults.set(r.playerId, r.handDescription)
+          if (r.holeCards) {
+            this.hand.showdownHoleCards.set(r.playerId, r.holeCards as [string, string])
+          }
+        }
+      }
+    }
   }
 
   private async handleMessage(msg: ServerMessage): Promise<void> {

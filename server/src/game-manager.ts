@@ -62,6 +62,7 @@ interface JoinResult {
   errorMessage?: string;
   gameState?: GameState;
   joinEvent?: Event;
+  handEvents?: Event[];
 }
 
 export class GameManager {
@@ -180,7 +181,12 @@ export class GameManager {
         playerId,
         role === 'spectator' ? active.spectatorVisibility : undefined
       );
-      return { ok: true, gameState: clientState, joinEvent: result.event };
+      return {
+        ok: true,
+        gameState: clientState,
+        joinEvent: result.event,
+        handEvents: active.state.handInProgress ? [...active.state.handEvents] : undefined,
+      };
     } catch (err) {
       this.logger.error({ err, gameId, playerId }, 'Failed to join game');
       return { ok: false, errorCode: 'GAME_FULL', errorMessage: 'Could not join game' };
