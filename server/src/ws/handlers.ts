@@ -235,7 +235,7 @@ export function handleChat(
   session: PlayerSession,
   payload: ChatSendPayload,
   sessions: SessionManager,
-  _gameManager: GameManager,
+  gameManager: GameManager,
   _logger: FastifyBaseLogger
 ): void {
   if (!session.gameId) {
@@ -246,6 +246,11 @@ export function handleChat(
     return;
   }
 
+  // Look up sender's role from the game engine state
+  const engineState = gameManager.getActiveGameState(session.gameId);
+  const senderPlayer = engineState?.players.find(p => p.id === session.playerId);
+  const role = senderPlayer?.role ?? 'player';
+
   sessions.broadcast(session.gameId, {
     action: 'chatMessage',
     payload: {
@@ -253,6 +258,7 @@ export function handleChat(
       displayName: session.displayName,
       message: payload.message,
       timestamp: new Date().toISOString(),
+      role,
     },
   });
 }

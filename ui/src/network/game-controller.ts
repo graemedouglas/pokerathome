@@ -94,6 +94,23 @@ export class GameController {
         return
       }
 
+      // Handle chatMessage synchronously — display-only, must not be blocked
+      // by pending actions in the promise chain
+      if (msg.action === 'chatMessage') {
+        const chat = msg.payload as { playerId: string; displayName: string; message: string; timestamp: string; role?: string }
+        if (this.renderer) {
+          this.renderer.addChatMessage({
+            displayName: chat.displayName,
+            message: chat.message,
+            timestamp: chat.timestamp,
+            role: chat.role as 'player' | 'spectator' | undefined,
+          })
+        } else {
+          this.buffered.push(msg)
+        }
+        return
+      }
+
       // If we have a pending action and the server says our player timed out,
       // cancel the action immediately (before queuing) to prevent chain deadlock
       if (msg.action === 'gameState' && this.pendingActionRequest) {
@@ -155,6 +172,17 @@ export class GameController {
 
     // Then drain buffered messages in order
     for (const msg of this.buffered) {
+      // Chat messages are display-only — process immediately, don't queue in chain
+      if (msg.action === 'chatMessage') {
+        const chat = msg.payload as { playerId: string; displayName: string; message: string; timestamp: string; role?: string }
+        this.renderer!.addChatMessage({
+          displayName: chat.displayName,
+          message: chat.message,
+          timestamp: chat.timestamp,
+          role: chat.role as 'player' | 'spectator' | undefined,
+        })
+        continue
+      }
       this.chain = this.chain
         .then(() => this.handleMessage(msg))
         .catch(err => console.error('[GameController] buffered message error:', err))
@@ -199,15 +227,7 @@ export class GameController {
       case 'error':
         this.emit({ type: 'error', message: (msg.payload as { message: string }).message })
         break
-      case 'chatMessage': {
-        const chat = msg.payload as { playerId: string; displayName: string; message: string; timestamp: string }
-        this.renderer!.addChatMessage({
-          displayName: chat.displayName,
-          message: chat.message,
-          timestamp: chat.timestamp,
-        })
-        break
-      }
+      // chatMessage is handled outside the chain in start() — no case needed here
     }
   }
 

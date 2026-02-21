@@ -340,6 +340,7 @@ export const ChatMessagePayload = z.object({
   displayName: z.string(),
   message: z.string(),
   timestamp: z.string().datetime(),
+  role: PlayerRole,
 });
 export type ChatMessagePayload = z.infer<typeof ChatMessagePayload>;
 

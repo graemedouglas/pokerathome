@@ -5,6 +5,7 @@ export interface ChatMessage {
   message: string
   timestamp: string
   isSystem?: boolean
+  role?: 'player' | 'spectator'
 }
 
 const NAME_COLORS = [
@@ -100,6 +101,15 @@ export class ChatPanel {
       line.classList.add('chat-line-system')
       line.textContent = msg.message
     } else {
+      // Role tag: [Player] or [Spectator]
+      if (msg.role) {
+        const roleSpan = document.createElement('span')
+        roleSpan.className = 'chat-role'
+        roleSpan.classList.add(msg.role === 'spectator' ? 'chat-role-spectator' : 'chat-role-player')
+        roleSpan.textContent = msg.role === 'spectator' ? '[Spectator] ' : '[Player] '
+        line.appendChild(roleSpan)
+      }
+
       const nameSpan = document.createElement('span')
       nameSpan.className = 'chat-name'
       nameSpan.style.color = nameColor(msg.displayName)
@@ -206,6 +216,17 @@ export class ChatPanel {
       }
       .chat-name {
         font-weight: bold;
+      }
+      .chat-role {
+        font-size: 10px;
+        font-weight: bold;
+        margin-right: 2px;
+      }
+      .chat-role-player {
+        color: #4ade80;
+      }
+      .chat-role-spectator {
+        color: #fbbf24;
       }
       .chat-input-row {
         display: flex;
