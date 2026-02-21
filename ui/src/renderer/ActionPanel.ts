@@ -551,8 +551,11 @@ export class ActionPanel extends Container {
   }
 
   updateTimer(remainingMs: number): void {
-    this.timerEndTime = performance.now() + remainingMs;
-    // If ticker not running but panel is visible, restart animation loop
+    const newEndTime = performance.now() + remainingMs;
+    // Only hard-resync if drift is large; small drifts stay smooth
+    if (this.timerRafId === null || Math.abs(newEndTime - this.timerEndTime) > 2000) {
+      this.timerEndTime = newEndTime;
+    }
     if (this.timerRafId === null && this.visible) {
       this.timerBar.visible = true;
       this.tickTimer();
