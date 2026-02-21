@@ -129,7 +129,7 @@ export class ActionPanel extends Container {
     row.addChild(this.sliderKnob);
 
     // Controls: [-] [$amount] [+]
-    const controlsX = trackX + TRACK_WIDTH + 30;
+    const controlsX = trackX + TRACK_WIDTH + 80;
 
     const minusBtn = this.makeSmallBtn('-', controlsX - 55, () => {
       this.setRaiseAmount(this.raiseAmount - BIG_BLIND);
