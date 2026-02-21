@@ -477,3 +477,74 @@ describe('delayed mode — first hand hole cards hidden during play (Bug 2 fix)'
     expect(handEndMsg!.holeCardCount).toBeGreaterThan(0);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// joinGame initial state — spectator visibility applied correctly (Bug 5 fix)
+//
+// When a spectator joins mid-hand, the server sends the current board state in
+// the `gameJoined` message. That state is built with toClientGameState().
+// Previously, `joinGame` omitted the spectatorVisibility arg, causing it to
+// fall back to the global config default instead of the per-game setting.
+//
+// These tests verify toClientGameState behaves correctly for each mode, and
+// document that omitting the arg uses the global default (showdown), NOT the
+// per-game mode — proving the fix is needed in joinGame.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('joinGame initial state — spectator visibility (Bug 5 fix)', () => {
+  // Find the state immediately after DEAL (PRE_FLOP, cards dealt, hand in progress)
+  let stateAfterDeal: EngineState;
+
+  beforeAll(() => {
+    const state = createSpectatorGame();
+    const { transitions } = playHandToShowdown(state, RIGGED_DECK);
+    // DEAL transition is the one where the event type is 'DEAL'
+    const dealTransition = transitions.find(t => t.event.type === 'DEAL');
+    expect(dealTransition).toBeDefined();
+    stateAfterDeal = dealTransition!.state;
+  });
+
+  test('immediate mode: joinGame state shows hole cards during PRE_FLOP', () => {
+    // This is what the fix causes joinGame to call:
+    // toClientGameState(state, spectatorId, 'immediate')
+    const clientState = toClientGameState(stateAfterDeal, 'spectator-1', 'immediate');
+    const visibleCount = clientState.players.filter(
+      p => p.role !== 'spectator' && p.holeCards !== null
+    ).length;
+    expect(visibleCount).toBeGreaterThan(0);
+  });
+
+  test('immediate mode: omitting visibility arg uses global default (showdown), not immediate', () => {
+    // This is what the OLD (unfixed) joinGame called — no spectatorVisibility arg.
+    // The engine falls back to config.SPECTATOR_CARD_VISIBILITY (default: 'showdown'),
+    // so hole cards are hidden even though the per-game mode is 'immediate'.
+    // This test documents the pre-fix behavior; it confirms the fix is necessary.
+    const clientState = toClientGameState(stateAfterDeal, 'spectator-1' /*, no 3rd arg */);
+    const visibleCount = clientState.players.filter(
+      p => p.role !== 'spectator' && p.holeCards !== null
+    ).length;
+    // Global default is 'showdown' → cards hidden during PRE_FLOP
+    expect(visibleCount).toBe(0);
+  });
+
+  test('showdown mode: joinGame state hides hole cards during PRE_FLOP', () => {
+    const clientState = toClientGameState(stateAfterDeal, 'spectator-1', 'showdown');
+    const visibleCount = clientState.players.filter(
+      p => p.role !== 'spectator' && p.holeCards !== null
+    ).length;
+    expect(visibleCount).toBe(0);
+  });
+
+  test('showdown mode: joinGame state shows hole cards after SHOWDOWN', () => {
+    const state = createSpectatorGame();
+    const { transitions } = playHandToShowdown(state, RIGGED_DECK);
+    const showdownTransition = transitions.find(t => t.event.type === 'SHOWDOWN');
+    expect(showdownTransition).toBeDefined();
+
+    const clientState = toClientGameState(showdownTransition!.state, 'spectator-1', 'showdown');
+    const visibleCount = clientState.players.filter(
+      p => p.role !== 'spectator' && p.holeCards !== null
+    ).length;
+    expect(visibleCount).toBeGreaterThan(0);
+  });
+});

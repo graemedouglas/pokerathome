@@ -175,7 +175,11 @@ export class GameManager {
       const stack = role === 'spectator' ? 0 : row.starting_stack;
       addGamePlayer(gameId, playerId, result.seatIndex, role, stack);
 
-      const clientState = toClientGameState(active.state, playerId);
+      const clientState = toClientGameState(
+        active.state,
+        playerId,
+        role === 'spectator' ? active.spectatorVisibility : undefined
+      );
       return { ok: true, gameState: clientState, joinEvent: result.event };
     } catch (err) {
       this.logger.error({ err, gameId, playerId }, 'Failed to join game');
@@ -440,8 +444,11 @@ export class GameManager {
         const stateToSend = useDelayedState ? active.previousHandState! : active.state;
 
         if (isSpectator) {
-          const holeCardsRevealed = stateToSend.players.filter(
-            p => p.role === 'player' && p.holeCards !== null
+          // Count client-visible hole cards (after visibility filtering) so the
+          // log reflects what the spectator actually sees, not engine internals.
+          const clientStateForLog = toClientGameState(stateToSend, viewerId, active.spectatorVisibility);
+          const holeCardsVisible = clientStateForLog.players.filter(
+            p => p.role !== 'spectator' && p.holeCards !== null
           ).length;
           this.logger.debug(
             {
@@ -450,7 +457,7 @@ export class GameManager {
               stateStage: stateToSend.stage,
               communityCardCount: stateToSend.communityCards.length,
               handNumber: stateToSend.handNumber,
-              holeCardsRevealed,
+              holeCardsVisible,
               useDelayedState,
             },
             'spectator-tx',
