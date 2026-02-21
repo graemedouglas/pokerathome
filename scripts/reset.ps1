@@ -40,13 +40,26 @@ if ($removed -eq 0) {
   Write-Host "No database files to remove"
 }
 
+# ─── Remove logs ─────────────────────────────────────────────────────────────
+
+$logsDir = Join-Path $DbDir "logs"
+if (Test-Path $logsDir) {
+  Remove-Item $logsDir -Recurse -Force
+  Write-Host "Removed logs/"
+}
+
 # ─── Optionally restart ─────────────────────────────────────────────────────────
 
 if ($Start) {
   Write-Host ""
-  Write-Host "=== Starting servers ==="
+  Write-Host "=== Building workspaces ==="
 
   Set-Location $RootDir
+  pnpm build
+  Write-Host "Build complete"
+
+  Write-Host ""
+  Write-Host "=== Starting servers ==="
 
   # Start server in background
   $serverJob = Start-Job -ScriptBlock {
@@ -74,7 +87,7 @@ if ($Start) {
   $ready = $false
   for ($i = 1; $i -le 15; $i++) {
     try {
-      $res = Invoke-RestMethod -Uri "http://localhost:3000/health" -TimeoutSec 2 -ErrorAction SilentlyContinue
+      $res = Invoke-RestMethod -Uri "http://127.0.0.1:3000/health" -TimeoutSec 2 -ErrorAction SilentlyContinue
       if ($res.status -eq "ok") {
         Write-Host "Server is healthy"
         $ready = $true
@@ -100,7 +113,7 @@ if ($Start) {
       startingStack = 1000
     } | ConvertTo-Json
 
-    $game = Invoke-RestMethod -Uri "http://localhost:3000/api/games" `
+    $game = Invoke-RestMethod -Uri "http://127.0.0.1:3000/api/games" `
       -Method Post -ContentType "application/json" -Body $body
     Write-Host "Game created: $($game.name) ($($game.id))"
   } catch {
@@ -109,10 +122,10 @@ if ($Start) {
 
   Write-Host ""
   Write-Host "=== Ready ==="
-  Write-Host "  Server:  http://localhost:3000"
+  Write-Host "  Server:  http://127.0.0.1:3000"
   Write-Host "  UI:      http://localhost:5173"
   Write-Host "  Admin:   http://localhost:3001"
-  Write-Host "  API:     http://localhost:3000/api/games"
+  Write-Host "  API:     http://127.0.0.1:3000/api/games"
   Write-Host ""
   Write-Host "Press Ctrl+C to stop. Then run: .\scripts\kill-dev.ps1"
 

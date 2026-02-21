@@ -1,4 +1,7 @@
 {
+  "env": {
+    "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1"
+  },
   "permissions": {
     "allow": [
       "Bash(pnpm --filter @pokerathome/server test)",
@@ -10,7 +13,9 @@
       "Bash(timeout 10 pnpm dev:*)",
       "Bash(timeout 8 pnpm dev:*)",
       "Bash(pnpm exec tsc:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(node -e:*)"
     ]
-  }
+  },
+  "autoUpdatesChannel": "latest"
 }

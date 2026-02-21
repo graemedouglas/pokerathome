@@ -37,13 +37,26 @@ if [ "$removed" -eq 0 ]; then
   echo "No database files to remove"
 fi
 
+# ─── Remove logs ─────────────────────────────────────────────────────────────
+
+LOGS_DIR="$DB_DIR/logs"
+if [ -d "$LOGS_DIR" ]; then
+  rm -rf "$LOGS_DIR"
+  echo "Removed logs/"
+fi
+
 # ─── Optionally restart ─────────────────────────────────────────────────────────
 
 if [ "${1:-}" = "--start" ]; then
   echo ""
-  echo "=== Starting servers ==="
+  echo "=== Building workspaces ==="
 
   cd "$ROOT_DIR"
+  pnpm build
+  echo "Build complete"
+
+  echo ""
+  echo "=== Starting servers ==="
 
   # Start server in background
   pnpm dev &
@@ -63,7 +76,7 @@ if [ "${1:-}" = "--start" ]; then
   # Wait for server to be ready
   echo "Waiting for server health check..."
   for i in $(seq 1 15); do
-    if curl -sf http://localhost:3000/health >/dev/null 2>&1; then
+    if curl -sf http://127.0.0.1:3000/health >/dev/null 2>&1; then
       echo "Server is healthy"
       break
     fi
@@ -76,7 +89,7 @@ if [ "${1:-}" = "--start" ]; then
   # Create a game
   echo ""
   echo "=== Creating game ==="
-  curl -s -X POST http://localhost:3000/api/games \
+  curl -s -X POST http://127.0.0.1:3000/api/games \
     -H 'Content-Type: application/json' \
     -d '{"name":"Test Table","smallBlind":5,"bigBlind":10,"maxPlayers":6,"startingStack":1000}' \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Game created: {d[\"name\"]} ({d[\"id\"]})')" \
@@ -84,10 +97,10 @@ if [ "${1:-}" = "--start" ]; then
 
   echo ""
   echo "=== Ready ==="
-  echo "  Server:  http://localhost:3000"
+  echo "  Server:  http://127.0.0.1:3000"
   echo "  UI:      http://localhost:5173"
   echo "  Admin:   http://localhost:3001"
-  echo "  API:     http://localhost:3000/api/games"
+  echo "  API:     http://127.0.0.1:3000/api/games"
   echo ""
   echo "Press Ctrl+C to stop all servers"
 

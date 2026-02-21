@@ -1,4 +1,8 @@
 {
+  "autoUpdatesChannel": "latest",
+  "env": {
+    "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1"
+  },
   "permissions": {
     "allow": [
       "Bash(grep:*)"
