@@ -393,7 +393,7 @@ describe('Spectator support', () => {
     const result = addPlayer(dealState, 'spec-1', 'Watcher', 'spectator');
     const withSpec = result.state;
 
-    const clientState = toClientGameState(withSpec, 'spec-1');
+    const clientState = toClientGameState(withSpec, 'spec-1', 'immediate');
     const otherPlayers = clientState.players.filter((p) => p.id !== 'spec-1' && p.role === 'player');
 
     for (const p of otherPlayers) {

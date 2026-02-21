@@ -5,7 +5,8 @@
   "permissions": {
     "allow": [
       "Bash(grep:*)",
-      "Bash(npx jest:*)"
+      "Bash(npx jest:*)",
+      "Bash(npx vitest run:*)"
     ]
   },
   "autoUpdatesChannel": "latest"
