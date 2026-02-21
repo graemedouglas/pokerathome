@@ -33,6 +33,7 @@ import {
   removeGamePlayer,
   getGamePlayerCount,
   updateGameStatus,
+  updateGameSpectatorVisibility,
   saveHandHistory,
   saveGameSnapshot,
   deleteGameSnapshot,
@@ -46,6 +47,7 @@ interface ActiveGame {
   warningTimers: ReturnType<typeof setTimeout>[];
   riggedDeck: string[] | null;
   previousHandState: EngineState | null; // Track previous hand for delayed spectator view
+  spectatorVisibility: string; // Per-game spectator card visibility mode
 }
 
 interface ActionResult {
@@ -92,7 +94,7 @@ export class GameManager {
             this.logger.error({ err, gameId: row.id, playerId: gp.player_id }, 'Failed to restore player');
           }
         }
-        this.activeGames.set(row.id, { state: currentState, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null });
+        this.activeGames.set(row.id, { state: currentState, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null, spectatorVisibility: row.spectator_visibility ?? 'showdown' });
         this.logger.info({ gameId: row.id, playerCount: players.length }, 'Loaded waiting game');
       }
     }
@@ -117,8 +119,15 @@ export class GameManager {
     if (this.activeGames.has(gameId)) return;
 
     const state = this.createEngineStateFromRow(row);
-    this.activeGames.set(gameId, { state, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null });
+    this.activeGames.set(gameId, { state, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null, spectatorVisibility: row.spectator_visibility ?? 'showdown' });
     this.logger.info({ gameId }, 'Game activated');
+  }
+
+  /** Update spectator visibility mode for a game (persists to DB). */
+  setSpectatorVisibility(gameId: string, visibility: string): boolean {
+    const active = this.activeGames.get(gameId);
+    if (active) active.spectatorVisibility = visibility;
+    return updateGameSpectatorVisibility(gameId, visibility);
   }
 
   // ─── Game list ──────────────────────────────────────────────────────────────
@@ -361,7 +370,7 @@ export class GameManager {
     const isSpectator = player?.role === 'spectator';
     const useDelayedState =
       isSpectator &&
-      config.SPECTATOR_CARD_VISIBILITY === 'delayed' &&
+      active.spectatorVisibility === 'delayed' &&
       active.previousHandState !== null;
 
     const stateToSend = useDelayedState ? active.previousHandState! : active.state;
@@ -372,7 +381,8 @@ export class GameManager {
       stateToSend,
       lastEvent,
       playerId,
-      active.state.activePlayerId === playerId ? config.ACTION_TIMEOUT_MS : undefined
+      active.state.activePlayerId === playerId ? config.ACTION_TIMEOUT_MS : undefined,
+      active.spectatorVisibility
     );
   }
 
@@ -401,7 +411,7 @@ export class GameManager {
         const isSpectator = viewer?.role === 'spectator';
         const useDelayedState =
           isSpectator &&
-          config.SPECTATOR_CARD_VISIBILITY === 'delayed' &&
+          active.spectatorVisibility === 'delayed' &&
           active.previousHandState !== null;
 
         const stateToSend = useDelayedState ? active.previousHandState! : active.state;
@@ -412,7 +422,8 @@ export class GameManager {
             stateToSend,
             transition.event,
             viewerId,
-            config.ACTION_TIMEOUT_MS
+            config.ACTION_TIMEOUT_MS,
+            active.spectatorVisibility
           ),
         };
       });

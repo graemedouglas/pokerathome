@@ -7,11 +7,11 @@ packages:
   - bots
 
 ignoredBuiltDependencies:
-  - "@asyncapi/cli"
-  - "@hyperjump/json-pointer"
-  - "@hyperjump/json-schema"
-  - "@hyperjump/json-schema-core"
-  - "@hyperjump/pact"
+  - '@asyncapi/cli'
+  - '@hyperjump/json-pointer'
+  - '@hyperjump/json-schema'
+  - '@hyperjump/json-schema-core'
+  - '@hyperjump/pact'
   - esbuild
   - protobufjs
   - puppeteer
@@ -19,4 +19,14 @@ ignoredBuiltDependencies:
   - yarn
 
 onlyBuiltDependencies:
+  - '@asyncapi/cli'
+  - '@hyperjump/json-pointer'
+  - '@hyperjump/json-schema'
+  - '@hyperjump/json-schema-core'
+  - '@hyperjump/pact'
   - better-sqlite3
+  - esbuild
+  - protobufjs
+  - puppeteer
+  - unrs-resolver
+  - yarn

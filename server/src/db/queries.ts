@@ -19,6 +19,7 @@ export interface GameRow {
   big_blind: number;
   max_players: number;
   starting_stack: number;
+  spectator_visibility: string;
   created_at: string;
 }
 
@@ -80,6 +81,7 @@ export interface CreateGameParams {
   bigBlind: number;
   maxPlayers?: number;
   startingStack?: number;
+  spectatorVisibility?: string;
 }
 
 export function createGame(params: CreateGameParams): GameRow {
@@ -88,13 +90,21 @@ export function createGame(params: CreateGameParams): GameRow {
   const gameType = params.gameType ?? 'cash';
   const maxPlayers = params.maxPlayers ?? 9;
   const startingStack = params.startingStack ?? 1000;
+  const spectatorVisibility = params.spectatorVisibility ?? 'showdown';
 
   db.prepare(
-    `INSERT INTO games (id, name, game_type, small_blind, big_blind, max_players, starting_stack)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, params.name, gameType, params.smallBlind, params.bigBlind, maxPlayers, startingStack);
+    `INSERT INTO games (id, name, game_type, small_blind, big_blind, max_players, starting_stack, spectator_visibility)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, params.name, gameType, params.smallBlind, params.bigBlind, maxPlayers, startingStack, spectatorVisibility);
 
   return getGameById(id)!;
+}
+
+export function updateGameSpectatorVisibility(gameId: string, visibility: string): boolean {
+  const result = getDb()
+    .prepare(`UPDATE games SET spectator_visibility = ? WHERE id = ?`)
+    .run(visibility, gameId);
+  return result.changes > 0;
 }
 
 export function getGameById(id: string): GameRow | undefined {

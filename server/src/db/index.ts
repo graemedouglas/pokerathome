@@ -25,6 +25,13 @@ export function initDb(logger: FastifyBaseLogger): Database.Database {
   const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
   db.exec(schemaSql);
 
+  // Migrate: add spectator_visibility column to existing databases
+  const cols = db.pragma('table_info(games)') as Array<{ name: string }>;
+  if (!cols.some(c => c.name === 'spectator_visibility')) {
+    db.exec(`ALTER TABLE games ADD COLUMN spectator_visibility TEXT NOT NULL DEFAULT 'showdown'`);
+    logger.info('Migrated: added spectator_visibility column to games');
+  }
+
   logger.info({ dbPath: config.DB_PATH }, 'Database initialized');
   return db;
 }

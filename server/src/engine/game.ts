@@ -725,7 +725,8 @@ function determineVisibleCards(
   player: EnginePlayer,
   viewerPlayerId: string,
   isSpectator: boolean,
-  state: EngineState
+  state: EngineState,
+  spectatorVisibility?: string
 ): [string, string] | null {
   // Players always see their own cards
   if (player.id === viewerPlayerId) {
@@ -737,8 +738,8 @@ function determineVisibleCards(
     return state.stage === 'SHOWDOWN' ? player.holeCards : null;
   }
 
-  // Spectator visibility based on config
-  const mode = config.SPECTATOR_CARD_VISIBILITY;
+  // Spectator visibility based on per-game setting or global config fallback
+  const mode = spectatorVisibility ?? config.SPECTATOR_CARD_VISIBILITY;
 
   switch (mode) {
     case 'immediate':
@@ -763,7 +764,7 @@ function determineVisibleCards(
  * Convert engine state to a client-facing GameState for a specific viewer.
  * Hides opponent hole cards and strips engine-internal fields.
  */
-export function toClientGameState(state: EngineState, viewerPlayerId: string): GameState {
+export function toClientGameState(state: EngineState, viewerPlayerId: string, spectatorVisibility?: string): GameState {
   const viewer = state.players.find((p) => p.id === viewerPlayerId);
   const isSpectator = viewer?.role === 'spectator';
 
@@ -784,7 +785,7 @@ export function toClientGameState(state: EngineState, viewerPlayerId: string): G
       bet: p.bet,
       potShare: p.potShare,
       folded: p.folded,
-      holeCards: determineVisibleCards(p, viewerPlayerId, isSpectator, state),
+      holeCards: determineVisibleCards(p, viewerPlayerId, isSpectator, state, spectatorVisibility),
       connected: p.connected,
     })),
     dealerSeatIndex: state.dealerSeatIndex,
@@ -799,9 +800,10 @@ export function buildGameStatePayload(
   state: EngineState,
   event: Event,
   viewerPlayerId: string,
-  timeToActMs?: number
+  timeToActMs?: number,
+  spectatorVisibility?: string
 ): GameStateUpdatePayload {
-  const gameState = toClientGameState(state, viewerPlayerId);
+  const gameState = toClientGameState(state, viewerPlayerId, spectatorVisibility);
 
   let actionRequest: ActionRequest | undefined;
   if (state.activePlayerId === viewerPlayerId && timeToActMs) {

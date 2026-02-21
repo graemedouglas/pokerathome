@@ -17,7 +17,7 @@ const envSchema = z.object({
   MIN_PLAYERS_TO_START: z.coerce.number().int().min(2).default(2),
 
   /** Spectator card visibility mode */
-  SPECTATOR_CARD_VISIBILITY: z.enum(['immediate', 'delayed', 'showdown']).default('delayed'),
+  SPECTATOR_CARD_VISIBILITY: z.enum(['immediate', 'delayed', 'showdown']).default('showdown'),
 });
 
 export type Config = z.infer<typeof envSchema>;

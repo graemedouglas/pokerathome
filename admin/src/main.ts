@@ -9,6 +9,7 @@ interface Game {
   big_blind: number;
   max_players: number;
   starting_stack: number;
+  spectator_visibility: string;
   playerCount: number;
   created_at: string;
 }
@@ -37,6 +38,7 @@ async function createGame(data: {
   bigBlind: number;
   startingStack: number;
   maxPlayers: number;
+  spectatorVisibility: string;
 }) {
   const res = await fetch(`${API}/games`, {
     method: 'POST',
@@ -55,6 +57,18 @@ async function startGame(gameId: string) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to start game');
+  }
+}
+
+async function setSpectatorVisibility(gameId: string, visibility: string) {
+  const res = await fetch(`${API}/games/${gameId}/spectator-visibility`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spectatorVisibility: visibility }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update spectator mode');
   }
 }
 
@@ -89,6 +103,9 @@ function renderGames(games: Game[]) {
     return;
   }
 
+  const specLabel = (v: string) =>
+    v === 'showdown' ? 'Showdown' : v === 'delayed' ? 'Delayed' : 'Public';
+
   container.innerHTML = `
     <table>
       <thead>
@@ -98,6 +115,7 @@ function renderGames(games: Game[]) {
           <th>Stack</th>
           <th>Players</th>
           <th>Status</th>
+          <th>Spectator</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -111,6 +129,18 @@ function renderGames(games: Game[]) {
             <td>${g.starting_stack}</td>
             <td>${g.playerCount ?? 0}/${g.max_players}</td>
             <td><span class="status-${g.status}">${g.status}</span></td>
+            <td>
+              ${
+                g.status === 'waiting' || g.status === 'in_progress'
+                  ? `<select id="spec-${g.id}" class="spec-select">
+                       <option value="showdown"${g.spectator_visibility === 'showdown' ? ' selected' : ''}>Showdown</option>
+                       <option value="delayed"${g.spectator_visibility === 'delayed' ? ' selected' : ''}>Delayed</option>
+                       <option value="immediate"${g.spectator_visibility === 'immediate' ? ' selected' : ''}>Public</option>
+                     </select>
+                     <button class="secondary" onclick="window.__setSpec('${g.id}')">Set</button>`
+                  : esc(specLabel(g.spectator_visibility ?? 'showdown'))
+              }
+            </td>
             <td class="actions">
               ${
                 g.status === 'waiting'
@@ -162,6 +192,7 @@ document.getElementById('create-form')!.addEventListener('submit', async (e) => 
       10
     ),
     maxPlayers: parseInt((form.elements.namedItem('maxPlayers') as HTMLInputElement).value, 10),
+    spectatorVisibility: (form.elements.namedItem('spectatorVisibility') as HTMLSelectElement).value,
   };
 
   try {
@@ -190,6 +221,18 @@ document.getElementById('create-form')!.addEventListener('submit', async (e) => 
   try {
     await addBot(id, botType);
     toast(`${botType} bot added`);
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+};
+
+(window as any).__setSpec = async (id: string) => {
+  const select = document.getElementById(`spec-${id}`) as HTMLSelectElement;
+  const visibility = select?.value ?? 'showdown';
+  try {
+    await setSpectatorVisibility(id, visibility);
+    toast('Spectator mode updated');
     refresh();
   } catch (err: any) {
     toast(err.message, true);

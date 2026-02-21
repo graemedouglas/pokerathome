@@ -49,6 +49,10 @@
     table { width: 100%; border-collapse: collapse; }
     th, td { padding: 0.5rem 0.75rem; text-align: left; }
     th { font-size: 0.8rem; color: #888; text-transform: uppercase; border-bottom: 1px solid #2a2a2a; }
+    .spec-select {
+      background: #111; border: 1px solid #333; border-radius: 4px;
+      color: #e0e0e0; padding: 0.3rem 0.5rem; font-size: 0.8rem;
+    }
     td { border-bottom: 1px solid #1a1a1a; font-size: 0.9rem; }
     .status-waiting { color: #f59e0b; }
     .status-in_progress { color: #22c55e; }
@@ -83,6 +87,13 @@
         <label>Starting Stack <input type="number" name="startingStack" value="1000" min="1" required /></label>
         <label>Max Players <input type="number" name="maxPlayers" value="6" min="2" max="10" required /></label>
       </div>
+      <label>Spectator Mode
+        <select name="spectatorVisibility">
+          <option value="showdown">Showdown — cards visible at showdown only</option>
+          <option value="delayed">Delayed — shows previous hand in full</option>
+          <option value="immediate">Public — all cards visible in real-time</option>
+        </select>
+      </label>
       <button type="submit">Create Game</button>
     </form>
   </div>

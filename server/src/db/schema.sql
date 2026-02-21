@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS games (
   big_blind INTEGER NOT NULL,
   max_players INTEGER NOT NULL DEFAULT 9,
   starting_stack INTEGER NOT NULL DEFAULT 1000,
+  spectator_visibility TEXT NOT NULL DEFAULT 'showdown',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

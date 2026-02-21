@@ -21,6 +21,11 @@ const CreateGameBody = z.object({
   bigBlind: z.number().int().min(1),
   maxPlayers: z.number().int().min(2).max(10).default(9),
   startingStack: z.number().int().min(1).default(1000),
+  spectatorVisibility: z.enum(['showdown', 'delayed', 'immediate']).default('showdown'),
+});
+
+const SetSpectatorVisibilityBody = z.object({
+  spectatorVisibility: z.enum(['showdown', 'delayed', 'immediate']),
 });
 
 export function registerAdminRoutes(
@@ -62,6 +67,7 @@ export function registerAdminRoutes(
       bigBlind: body.data.bigBlind,
       maxPlayers: body.data.maxPlayers,
       startingStack: body.data.startingStack,
+      spectatorVisibility: body.data.spectatorVisibility,
     });
 
     // Activate in memory
@@ -112,6 +118,25 @@ export function registerAdminRoutes(
 
     logger.info({ gameId: request.params.id, botType: body.data.botType, displayName }, 'Bot added via admin API');
     return reply.status(201).send({ ok: true, displayName });
+  });
+
+  // Update spectator visibility for a game
+  app.patch<{ Params: { id: string } }>('/api/games/:id/spectator-visibility', async (request, reply) => {
+    const game = getGameById(request.params.id);
+    if (!game) return reply.status(404).send({ error: 'Game not found' });
+
+    const body = SetSpectatorVisibilityBody.safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: body.error.issues.map((i: { message: string }) => i.message).join('; ') });
+    }
+
+    const ok = gameManager.setSpectatorVisibility(request.params.id, body.data.spectatorVisibility);
+    if (!ok) {
+      return reply.status(404).send({ error: 'Game not found' });
+    }
+
+    logger.info({ gameId: request.params.id, spectatorVisibility: body.data.spectatorVisibility }, 'Spectator visibility updated via admin API');
+    return reply.send({ ok: true });
   });
 
   // Delete (cancel) a game

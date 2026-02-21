@@ -3,7 +3,12 @@
     "allow": [
       "Bash(pnpm --filter @pokerathome/server test)",
       "Bash(ls:*)",
-      "Bash(pnpm --filter @pokerathome/server test:*)"
+      "Bash(pnpm --filter @pokerathome/server test:*)",
+      "Bash(pnpm tsc:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm build:*)",
+      "Bash(timeout 10 pnpm dev:*)",
+      "Bash(timeout 8 pnpm dev:*)"
     ]
   }
 }
