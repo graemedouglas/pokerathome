@@ -21,6 +21,9 @@ const envSchema = z.object({
 
   /** Path to write server logs. Empty string disables file logging. */
   LOG_FILE: z.string().default('./logs/server.log'),
+
+  /** Directory to store replay files */
+  REPLAY_DIR: z.string().default('./replays/'),
 });
 
 export type Config = z.infer<typeof envSchema>;

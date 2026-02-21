@@ -242,6 +242,64 @@ export const Event = z.discriminatedUnion('type', [
 export type Event = z.infer<typeof Event>;
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Replay Schemas
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const ReplayGameConfig = z.object({
+  gameId: z.string().uuid(),
+  gameName: z.string(),
+  gameType: GameType,
+  smallBlindAmount: z.number().int().min(1),
+  bigBlindAmount: z.number().int().min(1),
+  maxPlayers: z.number().int().min(2),
+  startingStack: z.number().int().min(1),
+});
+export type ReplayGameConfig = z.infer<typeof ReplayGameConfig>;
+
+export const ReplayPlayer = z.object({
+  id: z.string().uuid(),
+  displayName: z.string(),
+  seatIndex: z.number().int().min(0),
+  role: PlayerRole,
+});
+export type ReplayPlayer = z.infer<typeof ReplayPlayer>;
+
+export const ReplayEntry = z.object({
+  index: z.number().int().min(0),
+  timestamp: z.number().int().min(0),
+  type: z.enum(['event', 'chat']),
+  event: Event.optional(),
+  engineState: z.record(z.string(), z.unknown()).optional(),
+  chat: z.lazy(() => ChatMessagePayload).optional(),
+});
+export type ReplayEntry = z.infer<typeof ReplayEntry>;
+
+export const ReplayFile = z.object({
+  version: z.literal(1),
+  gameConfig: ReplayGameConfig,
+  players: z.array(ReplayPlayer),
+  entries: z.array(ReplayEntry),
+});
+export type ReplayFile = z.infer<typeof ReplayFile>;
+
+export const ReplayControlPayload = z.object({
+  command: z.enum([
+    'play', 'pause', 'step_forward', 'step_backward',
+    'jump_round_start', 'jump_next_round',
+    'set_speed', 'set_position',
+  ]),
+  speed: z.number().min(0.25).max(10).optional(),
+  position: z.number().int().min(0).optional(),
+});
+export type ReplayControlPayload = z.infer<typeof ReplayControlPayload>;
+
+export const ReplayCardVisibilityPayload = z.object({
+  showAllCards: z.boolean().optional(),
+  playerVisibility: z.record(z.string(), z.boolean()).optional(),
+});
+export type ReplayCardVisibilityPayload = z.infer<typeof ReplayCardVisibilityPayload>;
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Message Payloads
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -301,6 +359,7 @@ export const GameListItem = z.object({
   smallBlindAmount: z.number().int().min(1),
   bigBlindAmount: z.number().int().min(1),
   status: GameStatus,
+  isReplay: z.boolean().optional(),
 });
 export type GameListItem = z.infer<typeof GameListItem>;
 
@@ -351,6 +410,19 @@ export const ErrorPayload = z.object({
 });
 export type ErrorPayload = z.infer<typeof ErrorPayload>;
 
+export const ReplayStatePayload = z.object({
+  position: z.number().int().min(0),
+  totalEntries: z.number().int().min(0),
+  isPlaying: z.boolean(),
+  speed: z.number(),
+  gameState: GameState,
+  event: Event.optional(),
+  chat: ChatMessagePayload.optional(),
+  handNumber: z.number().int().min(0),
+  stage: Stage,
+});
+export type ReplayStatePayload = z.infer<typeof ReplayStatePayload>;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Message Envelopes
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -397,6 +469,16 @@ export const LeaveGameMessage = z.object({
   payload: z.object({}).strict(),
 });
 
+export const ReplayControlMessage = z.object({
+  action: z.literal('replayControl'),
+  payload: ReplayControlPayload,
+});
+
+export const ReplayCardVisibilityMessage = z.object({
+  action: z.literal('replayCardVisibility'),
+  payload: ReplayCardVisibilityPayload,
+});
+
 /** Discriminated union of all client-to-server messages */
 export const ClientMessage = z.discriminatedUnion('action', [
   IdentifyMessage,
@@ -407,6 +489,8 @@ export const ClientMessage = z.discriminatedUnion('action', [
   RevealCardsMessage,
   ChatMessage,
   LeaveGameMessage,
+  ReplayControlMessage,
+  ReplayCardVisibilityMessage,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -452,6 +536,11 @@ export const ErrorServerMessage = z.object({
   payload: ErrorPayload,
 });
 
+export const ReplayStateServerMessage = z.object({
+  action: z.literal('replayState'),
+  payload: ReplayStatePayload,
+});
+
 /** Union of all server-to-client messages */
 export const ServerMessage = z.discriminatedUnion('action', [
   IdentifiedServerMessage,
@@ -462,5 +551,6 @@ export const ServerMessage = z.discriminatedUnion('action', [
   GameOverServerMessage,
   ChatBroadcastServerMessage,
   ErrorServerMessage,
+  ReplayStateServerMessage,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

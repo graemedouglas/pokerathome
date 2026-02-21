@@ -5,9 +5,12 @@
 import type { FastifyInstance } from 'fastify';
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
+import { ReplayFile } from '@pokerathome/schema';
 import { createGame, getGameById, listGames, deleteGame, getGamePlayers, getGamePlayerCount } from './db/queries.js';
 import type { GameManager } from './game-manager.js';
 import type { SessionManager } from './ws/session.js';
+import type { ReplayGameManager } from './replay/index.js';
+import { listReplayFiles, saveReplayFile } from './replay/storage.js';
 
 const AddBotBody = z.object({
   botType: z.enum(['calling-station', 'tag-bot']),
@@ -32,7 +35,8 @@ export function registerAdminRoutes(
   app: FastifyInstance,
   gameManager: GameManager,
   sessionManager: SessionManager,
-  logger: FastifyBaseLogger
+  logger: FastifyBaseLogger,
+  replayGameManager?: ReplayGameManager,
 ): void {
   // List all games
   app.get('/api/games', async (_request, reply) => {
@@ -148,5 +152,60 @@ export function registerAdminRoutes(
 
     logger.info({ gameId: request.params.id }, 'Game deleted via admin API');
     return reply.send({ ok: true });
+  });
+
+  // ─── Replay routes ──────────────────────────────────────────────────────────
+
+  // List available replay files
+  app.get('/api/replays', async (_request, reply) => {
+    const replays = listReplayFiles();
+    return reply.send(replays);
+  });
+
+  // Upload a replay file
+  app.post('/api/replays/upload', async (request, reply) => {
+    const body = ReplayFile.safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Invalid replay file format' });
+    }
+    const filePath = saveReplayFile(body.data.gameConfig.gameId, body.data);
+    logger.info({ filePath }, 'Replay file uploaded');
+    return reply.status(201).send({ filePath, gameId: body.data.gameConfig.gameId });
+  });
+
+  // Create a replay game from a file
+  app.post('/api/replays/create-game', async (request, reply) => {
+    if (!replayGameManager) {
+      return reply.status(500).send({ error: 'Replay system not available' });
+    }
+    const body = z.object({ filePath: z.string() }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: 'filePath is required' });
+    }
+    try {
+      const replayGameId = replayGameManager.createReplayGame(body.data.filePath);
+      logger.info({ replayGameId, filePath: body.data.filePath }, 'Replay game created via admin API');
+      return reply.status(201).send({ replayGameId });
+    } catch (err) {
+      logger.error({ err }, 'Failed to create replay game');
+      return reply.status(400).send({ error: 'Failed to create replay game' });
+    }
+  });
+
+  // List active replay games
+  app.get('/api/replay-games', async (_request, reply) => {
+    if (!replayGameManager) {
+      return reply.send([]);
+    }
+    return reply.send(replayGameManager.getReplayGameList());
+  });
+
+  // Get replay players (for card visibility panel)
+  app.get<{ Params: { id: string } }>('/api/replay-games/:id/players', async (request, reply) => {
+    if (!replayGameManager) {
+      return reply.status(404).send({ error: 'Replay system not available' });
+    }
+    const players = replayGameManager.getReplayPlayers(request.params.id);
+    return reply.send(players);
   });
 }

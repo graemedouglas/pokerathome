@@ -1,6 +1,7 @@
 import { GameRenderer } from './renderer/GameRenderer'
 import { WsClient } from './network/ws-client'
 import { GameController } from './network/game-controller'
+import { ReplayController } from './network/replay-controller'
 import { Lobby } from './lobby/lobby'
 
 async function main() {
@@ -25,40 +26,60 @@ async function main() {
   const lobby = new Lobby(ws)
   const result = await lobby.show()
 
-  // Start the game controller BEFORE hiding lobby / init'ing renderer.
-  // This ensures WS messages are buffered and none are lost in the gap.
-  const controller = new GameController(ws, result.isSpectator)
-  controller.setPlayerId(result.playerId)
-  controller.start()
+  if (result.isReplay) {
+    // ─── Replay mode ──────────────────────────────────────────────────────────
+    const controller = new ReplayController(ws)
+    controller.setPlayerId(result.playerId)
+    controller.start()
 
-  controller.onEvent((event) => {
-    if (event.type === 'error') {
-      console.warn('[Game] error:', event.message)
+    lobby.hide()
+
+    // Fetch replay players from admin API for the card visibility panel
+    try {
+      const res = await fetch(`/api/replay-games/${result.gameId}/players`)
+      if (res.ok) {
+        const players = await res.json()
+        controller.setReplayPlayers(players)
+      }
+    } catch {
+      // Non-critical — card visibility panel will show "No player data"
     }
-    if (event.type === 'gameOver') {
-      console.info('[Game] game over:', event.reason)
-    }
-  })
 
-  // Now safe to remove the lobby handler — controller is already capturing
-  lobby.hide()
+    const renderer = new GameRenderer()
+    await renderer.init(true, ws, controller)
 
-  // Initialize PixiJS renderer
-  const renderer = new GameRenderer()
-  await renderer.init(result.isSpectator, ws)
+    controller.attachRenderer(renderer)
+  } else {
+    // ─── Normal game mode ─────────────────────────────────────────────────────
+    const controller = new GameController(ws, result.isSpectator)
+    controller.setPlayerId(result.playerId)
+    controller.start()
 
-  // Attach renderer — this flushes the initial state + any buffered messages
-  controller.attachRenderer(renderer, result.initialGameState ?? undefined, result.handHistory)
+    controller.onEvent((event) => {
+      if (event.type === 'error') {
+        console.warn('[Game] error:', event.message)
+      }
+      if (event.type === 'gameOver') {
+        console.info('[Game] game over:', event.reason)
+      }
+    })
 
-  // Re-register event handler now that renderer is available for logging
-  controller.onEvent((event) => {
-    if (event.type === 'error') {
-      renderer.addLog(`Error: ${event.message}`)
-    }
-    if (event.type === 'gameOver') {
-      renderer.addLog(`Game over: ${event.reason}`)
-    }
-  })
+    lobby.hide()
+
+    const renderer = new GameRenderer()
+    await renderer.init(result.isSpectator, ws)
+
+    controller.attachRenderer(renderer, result.initialGameState ?? undefined, result.handHistory)
+
+    controller.onEvent((event) => {
+      if (event.type === 'error') {
+        renderer.addLog(`Error: ${event.message}`)
+      }
+      if (event.type === 'gameOver') {
+        renderer.addLog(`Game over: ${event.reason}`)
+      }
+    })
+  }
 }
 
 main().catch(console.error)

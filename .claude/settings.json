@@ -6,7 +6,15 @@
     "allow": [
       "Bash(grep:*)",
       "Bash(npx jest:*)",
-      "Bash(npx vitest run:*)"
+      "Bash(npx vitest run:*)",
+      "Bash(pnpm --filter e2e test)",
+      "Bash(pnpm --filter e2e test:unit:*)",
+      "Bash(pnpm --filter @pokerathome/ui exec tsc:*)",
+      "Bash(pnpm --filter @pokerathome/server exec tsc:*)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npx jest:*)",
+      "Bash(pnpm --filter e2e exec jest:*)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=8192\" pnpm --filter e2e test:unit:*)",
+      "Bash(pnpm:*)"
     ]
   },
   "autoUpdatesChannel": "latest"

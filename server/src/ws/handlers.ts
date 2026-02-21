@@ -10,9 +10,12 @@ import type {
   PlayerActionPayload,
   RevealCardsPayload,
   ChatSendPayload,
+  ReplayControlPayload,
+  ReplayCardVisibilityPayload,
 } from '@pokerathome/schema';
 import type { SessionManager, PlayerSession } from './session.js';
 import type { GameManager } from '../game-manager.js';
+import type { ReplayGameManager } from '../replay/index.js';
 import {
   createPlayer,
   getPlayerByReconnectToken,
@@ -87,12 +90,28 @@ export function handleListGames(
   session: PlayerSession,
   sessions: SessionManager,
   gameManager: GameManager,
-  _logger: FastifyBaseLogger
+  _logger: FastifyBaseLogger,
+  replayGameManager?: ReplayGameManager,
 ): void {
   const games = gameManager.getGameList();
+
+  // Append active replay games to the list
+  const replayGames = replayGameManager?.getReplayGameList() ?? [];
+  const replayListItems = replayGames.map(rg => ({
+    gameId: rg.replayGameId,
+    name: `[Replay] ${rg.gameName}`,
+    gameType: rg.gameType as 'cash' | 'tournament',
+    playerCount: rg.spectatorCount,
+    maxPlayers: 99,
+    smallBlindAmount: rg.smallBlindAmount,
+    bigBlindAmount: rg.bigBlindAmount,
+    status: 'in_progress' as const,
+    isReplay: true,
+  }));
+
   sessions.send(session.playerId, {
     action: 'gameList',
-    payload: { games },
+    payload: { games: [...games, ...replayListItems] },
   });
 }
 
@@ -103,13 +122,30 @@ export function handleJoinGame(
   payload: JoinGamePayload,
   sessions: SessionManager,
   gameManager: GameManager,
-  logger: FastifyBaseLogger
+  logger: FastifyBaseLogger,
+  replayGameManager?: ReplayGameManager,
 ): void {
   if (session.gameId) {
     sessions.send(session.playerId, {
       action: 'error',
       payload: { code: 'ALREADY_IN_GAME', message: 'You are already in a game. Leave first.' },
     });
+    return;
+  }
+
+  // Check if this is a replay game
+  if (replayGameManager?.isReplayGame(payload.gameId)) {
+    const joined = replayGameManager.joinReplayGame(payload.gameId, session.playerId);
+    if (!joined) {
+      sessions.send(session.playerId, {
+        action: 'error',
+        payload: { code: 'GAME_NOT_FOUND', message: 'Replay game not found' },
+      });
+      return;
+    }
+    sessions.setGameId(session.playerId, payload.gameId);
+    logger.info({ playerId: session.playerId, replayGameId: payload.gameId }, 'Player joined replay game');
+    // ReplayInstance.addSpectator() already sends initial replayState
     return;
   }
 
@@ -258,16 +294,21 @@ export function handleChat(
   const senderPlayer = engineState?.players.find(p => p.id === session.playerId);
   const role = senderPlayer?.role ?? 'player';
 
+  const chatPayload = {
+    playerId: session.playerId,
+    displayName: session.displayName,
+    message: payload.message,
+    timestamp: new Date().toISOString(),
+    role,
+  };
+
   sessions.broadcast(session.gameId, {
     action: 'chatMessage',
-    payload: {
-      playerId: session.playerId,
-      displayName: session.displayName,
-      message: payload.message,
-      timestamp: new Date().toISOString(),
-      role,
-    },
+    payload: chatPayload,
   });
+
+  // Record chat for replay
+  gameManager.getRecorder(session.gameId)?.recordChat(chatPayload);
 }
 
 // ─── leaveGame ──────────────────────────────────────────────────────────────────
@@ -276,7 +317,8 @@ export function handleLeaveGame(
   session: PlayerSession,
   sessions: SessionManager,
   gameManager: GameManager,
-  logger: FastifyBaseLogger
+  logger: FastifyBaseLogger,
+  replayGameManager?: ReplayGameManager,
 ): void {
   if (!session.gameId) {
     sessions.send(session.playerId, {
@@ -287,9 +329,53 @@ export function handleLeaveGame(
   }
 
   const gameId = session.gameId;
+
+  // Check if this is a replay game
+  if (replayGameManager?.isReplayGame(gameId)) {
+    replayGameManager.leaveReplayGame(gameId, session.playerId);
+    sessions.setGameId(session.playerId, null);
+    logger.info({ playerId: session.playerId, replayGameId: gameId }, 'Player left replay game');
+    return;
+  }
+
   gameManager.removePlayer(gameId, session.playerId, sessions);
   sessions.setGameId(session.playerId, null);
   logger.info({ playerId: session.playerId, gameId }, 'Player left game');
+}
+
+// ─── replayControl ──────────────────────────────────────────────────────────────
+
+export function handleReplayControl(
+  session: PlayerSession,
+  payload: ReplayControlPayload,
+  replayGameManager: ReplayGameManager,
+  _logger: FastifyBaseLogger,
+): void {
+  if (!session.gameId) return;
+  replayGameManager.handleControl(
+    session.gameId,
+    session.playerId,
+    payload.command,
+    payload.speed,
+    payload.position,
+  );
+}
+
+// ─── replayCardVisibility ───────────────────────────────────────────────────────
+
+export function handleReplayCardVisibility(
+  session: PlayerSession,
+  payload: ReplayCardVisibilityPayload,
+  replayGameManager: ReplayGameManager,
+  _logger: FastifyBaseLogger,
+): void {
+  if (!session.gameId) return;
+  replayGameManager.handleCardVisibility(
+    session.gameId,
+    session.playerId,
+    payload.showAllCards,
+    payload.playerVisibility,
+  );
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────

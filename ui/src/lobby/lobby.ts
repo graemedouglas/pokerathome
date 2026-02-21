@@ -7,6 +7,7 @@ export interface LobbyResult {
   reconnectToken: string
   gameId: string
   isSpectator: boolean
+  isReplay?: boolean
   initialGameState?: GameStateUpdatePayload
   handHistory?: ServerEvent[]
 }
@@ -21,6 +22,7 @@ export class Lobby {
   private reconnectToken = ''
   private currentGameId = ''
   private isSpectator = false
+  private isReplay = false
   private handHistory?: ServerEvent[]
   private currentScreen: LobbyScreen = 'connect'
   private removeMessageHandler?: () => void
@@ -131,11 +133,11 @@ export class Lobby {
         const info = el('div', 'lobby-game-info')
         info.textContent = `${game.playerCount}/${game.maxPlayers} players \u2022 ${game.gameType} \u2022 $${game.smallBlindAmount}/$${game.bigBlindAmount}`
 
-        const status = el('span', `lobby-game-status lobby-status-${game.status}`)
-        status.textContent = game.status === 'waiting' ? 'Waiting' : 'In Progress'
+        const status = el('span', `lobby-game-status lobby-status-${game.isReplay ? 'replay' : game.status}`)
+        status.textContent = game.isReplay ? 'Replay' : (game.status === 'waiting' ? 'Waiting' : 'In Progress')
 
-        const enterBtn = el('button', 'lobby-btn lobby-btn-primary lobby-btn-small')
-        enterBtn.textContent = 'Enter'
+        const enterBtn = el('button', `lobby-btn ${game.isReplay ? 'lobby-btn-spectate' : 'lobby-btn-primary'} lobby-btn-small`)
+        enterBtn.textContent = game.isReplay ? 'Watch' : 'Enter'
         enterBtn.addEventListener('click', () => {
           this.showJoinChoiceScreen(game)
         })
@@ -153,6 +155,16 @@ export class Lobby {
 
   private showJoinChoiceScreen(game: GameListItem): void {
     this.currentScreen = 'games'
+
+    // Replay games auto-join as spectator
+    if (game.isReplay) {
+      this.currentGameId = game.gameId
+      this.isSpectator = true
+      this.isReplay = true
+      this.ws.send('joinGame', { gameId: game.gameId, role: 'spectator' })
+      return
+    }
+
     const container = el('div', 'lobby-card')
 
     const title = el('h2', 'lobby-title-sm')
@@ -286,6 +298,14 @@ export class Lobby {
         break
       }
 
+      case 'replayState': {
+        // Replay games send replayState instead of gameJoined — transition immediately
+        this.isReplay = true
+        this.isSpectator = true
+        this.finish()
+        break
+      }
+
       case 'error': {
         const payload = msg.payload as { code?: string; message: string }
 
@@ -321,6 +341,7 @@ export class Lobby {
       reconnectToken: this.reconnectToken,
       gameId: this.currentGameId,
       isSpectator: this.isSpectator,
+      isReplay: this.isReplay,
       initialGameState,
       handHistory: this.handHistory,
     })
@@ -502,6 +523,10 @@ const LOBBY_STYLES = `<style>
   .lobby-status-in_progress {
     background: #3d3a1a;
     color: #fbbf24;
+  }
+  .lobby-status-replay {
+    background: #1a2a4d;
+    color: #60a5fa;
   }
   .lobby-join-prompt {
     font-size: 15px;

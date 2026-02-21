@@ -12,6 +12,7 @@ import { config } from './config.js';
 import { initDb, closeDb } from './db/index.js';
 import { SessionManager } from './ws/session.js';
 import { GameManager } from './game-manager.js';
+import { ReplayGameManager } from './replay/index.js';
 import { registerWebSocket } from './ws/server.js';
 import { registerAdminRoutes } from './admin-api.js';
 
@@ -70,9 +71,10 @@ async function main() {
     trace('plugins registered');
 
     // Create managers
-    trace('creating SessionManager + GameManager');
+    trace('creating SessionManager + GameManager + ReplayGameManager');
     const sessionManager = new SessionManager(logger);
     const gameManager = new GameManager(logger);
+    const replayGameManager = new ReplayGameManager(sessionManager, logger);
     trace('managers created');
 
     // Load any active games from DB (crash recovery)
@@ -82,8 +84,8 @@ async function main() {
 
     // Register routes
     trace('registering routes (ws, admin, health)');
-    registerWebSocket(app, sessionManager, gameManager, logger);
-    registerAdminRoutes(app, gameManager, sessionManager, logger);
+    registerWebSocket(app, sessionManager, gameManager, logger, replayGameManager);
+    registerAdminRoutes(app, gameManager, sessionManager, logger, replayGameManager);
     app.get('/health', async () => ({ status: 'ok', sessions: sessionManager.size }));
     trace('routes registered');
 

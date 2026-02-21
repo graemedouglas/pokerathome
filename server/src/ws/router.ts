@@ -8,12 +8,14 @@ import type { FastifyBaseLogger } from 'fastify';
 import { ClientMessage } from '@pokerathome/schema';
 import type { SessionManager } from './session.js';
 import type { GameManager } from '../game-manager.js';
+import type { ReplayGameManager } from '../replay/index.js';
 import * as handlers from './handlers.js';
 
 export function createRouter(
   sessionManager: SessionManager,
   gameManager: GameManager,
-  logger: FastifyBaseLogger
+  logger: FastifyBaseLogger,
+  replayGameManager?: ReplayGameManager,
 ) {
   return function handleMessage(socket: WebSocket, raw: string): void {
     // Parse JSON
@@ -48,10 +50,10 @@ export function createRouter(
           handlers.handleIdentify(socket, message.payload, sessionManager, gameManager, logger);
           break;
         case 'listGames':
-          handlers.handleListGames(session!, sessionManager, gameManager, logger);
+          handlers.handleListGames(session!, sessionManager, gameManager, logger, replayGameManager);
           break;
         case 'joinGame':
-          handlers.handleJoinGame(session!, message.payload, sessionManager, gameManager, logger);
+          handlers.handleJoinGame(session!, message.payload, sessionManager, gameManager, logger, replayGameManager);
           break;
         case 'ready':
           handlers.handleReady(session!, sessionManager, gameManager, logger);
@@ -66,7 +68,17 @@ export function createRouter(
           handlers.handleChat(session!, message.payload, sessionManager, gameManager, logger);
           break;
         case 'leaveGame':
-          handlers.handleLeaveGame(session!, sessionManager, gameManager, logger);
+          handlers.handleLeaveGame(session!, sessionManager, gameManager, logger, replayGameManager);
+          break;
+        case 'replayControl':
+          if (replayGameManager) {
+            handlers.handleReplayControl(session!, message.payload, replayGameManager, logger);
+          }
+          break;
+        case 'replayCardVisibility':
+          if (replayGameManager) {
+            handlers.handleReplayCardVisibility(session!, message.payload, replayGameManager, logger);
+          }
           break;
       }
     } catch (err) {

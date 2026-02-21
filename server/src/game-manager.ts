@@ -40,6 +40,8 @@ import {
   type GameRow,
 } from './db/queries.js';
 import { config } from './config.js';
+import { ReplayRecorder } from './replay/recorder.js';
+import { saveReplayFile } from './replay/storage.js';
 
 interface ActiveGame {
   state: EngineState;
@@ -48,6 +50,7 @@ interface ActiveGame {
   riggedDeck: string[] | null;
   previousHandState: EngineState | null; // Track previous hand for delayed spectator view
   spectatorVisibility: string; // Per-game spectator card visibility mode
+  recorder: ReplayRecorder | null; // Replay recording
 }
 
 interface ActionResult {
@@ -95,14 +98,14 @@ export class GameManager {
             this.logger.error({ err, gameId: row.id, playerId: gp.player_id }, 'Failed to restore player');
           }
         }
-        this.activeGames.set(row.id, { state: currentState, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null, spectatorVisibility: row.spectator_visibility ?? 'showdown' });
+        this.activeGames.set(row.id, { state: currentState, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null, spectatorVisibility: row.spectator_visibility ?? 'showdown', recorder: new ReplayRecorder(this.createGameConfig(row)) });
         this.logger.info({ gameId: row.id, playerCount: players.length }, 'Loaded waiting game');
       }
     }
   }
 
-  private createEngineStateFromRow(row: GameRow): EngineState {
-    return createInitialState({
+  private createGameConfig(row: GameRow): GameConfig {
+    return {
       gameId: row.id,
       gameName: row.name,
       gameType: row.game_type as 'cash' | 'tournament',
@@ -110,7 +113,11 @@ export class GameManager {
       bigBlindAmount: row.big_blind,
       maxPlayers: row.max_players,
       startingStack: row.starting_stack,
-    });
+    };
+  }
+
+  private createEngineStateFromRow(row: GameRow): EngineState {
+    return createInitialState(this.createGameConfig(row));
   }
 
   /** Register a game from the DB into the active games map. */
@@ -120,7 +127,7 @@ export class GameManager {
     if (this.activeGames.has(gameId)) return;
 
     const state = this.createEngineStateFromRow(row);
-    this.activeGames.set(gameId, { state, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null, spectatorVisibility: row.spectator_visibility ?? 'showdown' });
+    this.activeGames.set(gameId, { state, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null, spectatorVisibility: row.spectator_visibility ?? 'showdown', recorder: new ReplayRecorder(this.createGameConfig(row)) });
     this.logger.info({ gameId }, 'Game activated');
   }
 
@@ -171,6 +178,11 @@ export class GameManager {
     try {
       const result = addPlayer(active.state, playerId, displayName, role);
       active.state = result.state;
+
+      // Record player for replay (only players, not spectators)
+      if (role === 'player') {
+        active.recorder?.recordPlayer(playerId, displayName, result.seatIndex, role);
+      }
 
       // Persist to DB
       const stack = role === 'spectator' ? 0 : row.starting_stack;
@@ -443,6 +455,9 @@ export class GameManager {
     for (const transition of transitions) {
       active.state = transition.state;
 
+      // Record for replay
+      active.recorder?.recordEvent(transition.event, active.state);
+
       // Broadcast personalized state to all players in the game
       sessions.broadcastPersonalized(gameId, (viewerId) => {
         const viewer = active.state.players.find(p => p.id === viewerId);
@@ -660,6 +675,17 @@ export class GameManager {
       },
     });
 
+    // Save replay file
+    if (active.recorder && active.recorder.entryCount > 0) {
+      try {
+        const replayData = active.recorder.toReplayFile();
+        const filePath = saveReplayFile(gameId, replayData);
+        this.logger.info({ gameId, filePath, entryCount: active.recorder.entryCount }, 'Replay saved');
+      } catch (err) {
+        this.logger.error({ err, gameId }, 'Failed to save replay');
+      }
+    }
+
     // Update DB
     updateGameStatus(gameId, 'completed');
     deleteGameSnapshot(gameId);
@@ -749,5 +775,10 @@ export class GameManager {
 
   getActiveGameState(gameId: string): EngineState | undefined {
     return this.activeGames.get(gameId)?.state;
+  }
+
+  /** Get the replay recorder for a game (for chat recording). */
+  getRecorder(gameId: string): ReplayRecorder | null {
+    return this.activeGames.get(gameId)?.recorder ?? null;
   }
 }

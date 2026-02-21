@@ -14,6 +14,9 @@ import { InfoPanel } from './InfoPanel';
 import { SpectatorPanel } from './SpectatorPanel';
 import { ChatPanel, type ChatMessage } from './ChatPanel';
 import type { WsClient } from '../network/ws-client';
+import type { ReplayController } from '../network/replay-controller';
+import { ReplayControls } from './ReplayControls';
+import { ReplayCardVisibilityPanel } from './ReplayCardVisibilityPanel';
 import { tween, delay, easeOutBack, easeOutCubic } from '../utils/Animations';
 import { evaluateHandDescription } from '../utils/hand-evaluator';
 
@@ -52,9 +55,13 @@ export class GameRenderer {
   private statusText!: Text;
 
   private humanActionResolve: ((action: PlayerAction) => void) | null = null;
+  private isReplayMode = false;
+  private replayControls: ReplayControls | null = null;
+  private replayCardPanel: ReplayCardVisibilityPanel | null = null;
 
-  async init(isSpectator = false, ws?: WsClient): Promise<void> {
+  async init(isSpectator = false, ws?: WsClient, replayController?: ReplayController): Promise<void> {
     this.isSpectator = isSpectator;
+    this.isReplayMode = !!replayController;
     this.app = new Application();
     await this.app.init({
       width: CANVAS_WIDTH,
@@ -112,10 +119,18 @@ export class GameRenderer {
     this.potDisplay = new PotDisplay();
     this.communityLayer.addChild(this.potDisplay);
 
-    // Action panel (hidden for spectators)
+    // Action panel (hidden for spectators and replay mode)
     this.actionPanel = new ActionPanel();
-    if (!this.isSpectator) {
+    if (!this.isSpectator && !this.isReplayMode) {
       this.uiLayer.addChild(this.actionPanel);
+    }
+
+    // Replay controls (shown only in replay mode)
+    if (this.isReplayMode && replayController) {
+      this.replayControls = new ReplayControls(replayController);
+      this.uiLayer.addChild(this.replayControls);
+      this.replayCardPanel = new ReplayCardVisibilityPanel(replayController);
+      this.replayCardPanel.mount();
     }
 
     // Phase indicator ΓÇö white with dark stroke for visibility over green felt
@@ -256,12 +271,12 @@ export class GameRenderer {
     this.spectatorPanel = new SpectatorPanel();
     this.uiLayer.addChild(this.spectatorPanel);
 
-    // Spectator indicator
+    // Spectator / Replay indicator
     this.spectatorText = new Text({
-      text: 'SPECTATING',
+      text: this.isReplayMode ? 'REPLAY' : 'SPECTATING',
       style: {
         fontSize: 14,
-        fill: 0xfbbf24,
+        fill: this.isReplayMode ? 0x60a5fa : 0xfbbf24,
         fontFamily: 'Arial',
         fontWeight: 'bold',
         letterSpacing: 3,
@@ -270,8 +285,9 @@ export class GameRenderer {
     });
     this.spectatorText.anchor.set(0.5);
     this.spectatorText.x = TABLE_CENTER_X;
-    this.spectatorText.y = CANVAS_HEIGHT - 40;
-    this.spectatorText.visible = this.isSpectator;
+    // Move up in replay mode to avoid overlapping with replay controls
+    this.spectatorText.y = this.isReplayMode ? CANVAS_HEIGHT - 90 : CANVAS_HEIGHT - 40;
+    this.spectatorText.visible = this.isSpectator || this.isReplayMode;
     this.uiLayer.addChild(this.spectatorText);
 
     // Chat panel (HTML overlay)

@@ -93,6 +93,46 @@ async function addBot(gameId: string, botType: string) {
   return res.json();
 }
 
+// ─── Replay API calls ────────────────────────────────────────────────────────────
+
+interface ReplayInfo {
+  gameId: string;
+  gameName: string;
+  filePath: string;
+  createdAt: string;
+}
+
+async function fetchReplays(): Promise<ReplayInfo[]> {
+  const res = await fetch(`${API}/replays`);
+  if (!res.ok) throw new Error('Failed to fetch replays');
+  return res.json();
+}
+
+async function createReplayGame(filePath: string): Promise<{ replayGameId: string }> {
+  const res = await fetch(`${API}/replays/create-game`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to create replay game');
+  }
+  return res.json();
+}
+
+async function uploadReplayFile(data: unknown): Promise<void> {
+  const res = await fetch(`${API}/replays/upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to upload replay');
+  }
+}
+
 // ─── Render ─────────────────────────────────────────────────────────────────────
 
 function renderGames(games: Game[]) {
@@ -169,14 +209,51 @@ function esc(s: string): string {
   return div.innerHTML;
 }
 
+function renderReplays(replays: ReplayInfo[]) {
+  const container = document.getElementById('replays-container')!;
+
+  if (replays.length === 0) {
+    container.innerHTML = '<em style="color:#666">No replay files. Complete a game to generate one.</em>';
+    return;
+  }
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Game Name</th>
+          <th>Date</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${replays
+          .map(
+            (r) => `
+          <tr>
+            <td>${esc(r.gameName)}</td>
+            <td>${new Date(r.createdAt).toLocaleString()}</td>
+            <td class="actions">
+              <button class="secondary" onclick="window.__launchReplay('${esc(r.filePath.replace(/\\/g, '\\\\'))}')">Launch Replay</button>
+            </td>
+          </tr>
+        `
+          )
+          .join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 // ─── Event handlers ─────────────────────────────────────────────────────────────
 
 async function refresh() {
   try {
-    const games = await fetchGames();
+    const [games, replays] = await Promise.all([fetchGames(), fetchReplays()]);
     renderGames(games);
+    renderReplays(replays);
   } catch (err) {
-    toast('Failed to load games', true);
+    toast('Failed to load data', true);
   }
 }
 
@@ -248,6 +325,34 @@ document.getElementById('create-form')!.addEventListener('submit', async (e) => 
     toast(err.message, true);
   }
 };
+
+(window as any).__launchReplay = async (filePath: string) => {
+  try {
+    const result = await createReplayGame(filePath);
+    toast(`Replay game created: ${result.replayGameId}`);
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+};
+
+// Replay file upload
+document.getElementById('replay-upload')?.addEventListener('change', async (e) => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    await uploadReplayFile(data);
+    toast('Replay uploaded');
+    input.value = '';
+    refresh();
+  } catch (err: any) {
+    toast(err.message || 'Failed to upload replay', true);
+  }
+});
 
 // Auto-refresh every 5s
 refresh();
