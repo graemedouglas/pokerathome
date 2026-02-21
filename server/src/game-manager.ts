@@ -181,11 +181,16 @@ export class GameManager {
         playerId,
         role === 'spectator' ? active.spectatorVisibility : undefined
       );
+      const handEvents = active.state.handInProgress ? [...active.state.handEvents] : undefined;
+      this.logger.debug(
+        { playerId, role, handInProgress: active.state.handInProgress, handEventsCount: handEvents?.length ?? 0, handEventTypes: handEvents?.map(e => e.type) },
+        'joinGame-result',
+      );
       return {
         ok: true,
         gameState: clientState,
         joinEvent: result.event,
-        handEvents: active.state.handInProgress ? [...active.state.handEvents] : undefined,
+        handEvents,
       };
     } catch (err) {
       this.logger.error({ err, gameId, playerId }, 'Failed to join game');
@@ -735,7 +740,7 @@ export class GameManager {
   ): GameStateUpdatePayload | undefined {
     const active = this.activeGames.get(gameId);
     if (!active) return undefined;
-    return buildGameStatePayload(active.state, event, viewerPlayerId, config.ACTION_TIMEOUT_MS, active.spectatorVisibility);
+    return buildGameStatePayload(active.state, event, viewerPlayerId, undefined, active.spectatorVisibility);
   }
 
   isGameActive(gameId: string): boolean {

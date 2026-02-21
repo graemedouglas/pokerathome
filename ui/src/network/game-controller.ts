@@ -127,8 +127,14 @@ export class GameController {
 
     // Replay hand history to populate HandContext (cardsDealt, blinds, etc.)
     // without triggering animations. This handles spectators joining mid-hand.
+    if (this.isSpectator) {
+      console.debug('[Spectator] attachRenderer: handHistory =', handHistory?.length ?? 0, 'events',
+        handHistory?.map(e => e.type))
+    }
     if (handHistory?.length) {
       this.replayHandHistory(handHistory)
+      console.debug('[Spectator] after replay: cardsDealt =', this.hand.cardsDealt,
+        '| sb =', this.hand.sbPlayerId, '| bb =', this.hand.bbPlayerId)
     }
 
     // Process initial state first (if any)
@@ -228,6 +234,13 @@ export class GameController {
     // HAND_START: nuke everything from the previous hand
     if (event.type === 'HAND_START') {
       this.hand = freshHandContext()
+    }
+
+    // Fallback: infer cardsDealt if we joined mid-hand without hand history.
+    // Any event after BLINDS_POSTED with handNumber > 0 means cards were dealt.
+    if (!this.hand.cardsDealt && serverState.handNumber > 0 &&
+        event.type !== 'HAND_START' && event.type !== 'BLINDS_POSTED') {
+      this.hand.cardsDealt = true
     }
 
     // Blinds

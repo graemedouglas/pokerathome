@@ -18,6 +18,7 @@ import {
   processAction,
   cloneState,
   toClientGameState,
+  buildGameStatePayload,
   type EngineState,
   type Transition,
 } from '../src/engine/game';
@@ -610,5 +611,62 @@ describe('mid-hand spectator join — hand history sent (flop-sent-early regress
     // Should have at least one PLAYER_ACTION from PRE_FLOP betting
     const actionEvents = flopState.handEvents.filter(e => e.type === 'PLAYER_ACTION');
     expect(actionEvents.length).toBeGreaterThan(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLAYER_JOINED broadcast must NOT carry actionRequest (double-action regression)
+//
+// When a spectator joins mid-hand, the PLAYER_JOINED event is broadcast to all
+// players via buildStatePayload. Previously this always passed ACTION_TIMEOUT_MS
+// to buildGameStatePayload, causing the active player to receive a stale
+// actionRequest. Because the UI promise chain processes messages sequentially,
+// the PLAYER_JOINED actionRequest would trigger a second waitForHumanAction
+// after the player already acted — forcing them to act twice.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('PLAYER_JOINED broadcast must not carry actionRequest (double-action regression)', () => {
+  let midHandState: EngineState;
+  let joinEvent: ReturnType<typeof addPlayer>['event'];
+
+  beforeAll(() => {
+    const state = createSpectatorGame();
+    const startTransitions = startHand(state, RIGGED_DECK);
+    // State after DEAL — PRE_FLOP with an activePlayerId
+    midHandState = startTransitions[startTransitions.length - 1].state;
+    expect(midHandState.activePlayerId).toBeTruthy();
+
+    // Add a second spectator mid-hand (simulates spectator joining)
+    const result = addPlayer(midHandState, 'spectator-2', 'Dave', 'spectator');
+    midHandState = result.state;
+    joinEvent = result.event;
+    expect(joinEvent.type).toBe('PLAYER_JOINED');
+  });
+
+  test('active player gets no actionRequest when timeToActMs is undefined (the fix)', () => {
+    const payload = buildGameStatePayload(
+      midHandState, joinEvent, midHandState.activePlayerId!, undefined
+    );
+    expect(payload.actionRequest).toBeUndefined();
+  });
+
+  test('non-active player gets no actionRequest regardless', () => {
+    const otherPlayer = midHandState.players.find(
+      p => p.role === 'player' && p.id !== midHandState.activePlayerId
+    )!;
+    const payload = buildGameStatePayload(
+      midHandState, joinEvent, otherPlayer.id, undefined
+    );
+    expect(payload.actionRequest).toBeUndefined();
+  });
+
+  test('BUG PROOF: passing timeToActMs WOULD include actionRequest for active player', () => {
+    // This demonstrates the old buggy behavior — if we pass timeToActMs,
+    // the active player gets an actionRequest they shouldn't have.
+    const payload = buildGameStatePayload(
+      midHandState, joinEvent, midHandState.activePlayerId!, 30000
+    );
+    expect(payload.actionRequest).toBeDefined();
+    expect(payload.actionRequest!.timeToActMs).toBe(30000);
   });
 });
