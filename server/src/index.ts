@@ -15,13 +15,24 @@ import { registerWebSocket } from './ws/server.js';
 import { registerAdminRoutes } from './admin-api.js';
 
 async function main() {
+  // Build transport: always pretty-print to stdout; also write raw NDJSON to
+  // a log file (always at debug level) when LOG_FILE is set so that
+  // spectator-tx / player-tx entries are captured even when stdout is info.
+  const transport = config.LOG_FILE
+    ? {
+        targets: [
+          { target: 'pino-pretty', options: { colorize: true }, level: config.LOG_LEVEL },
+          { target: 'pino/file',   options: { destination: config.LOG_FILE, mkdir: true }, level: 'debug' },
+        ],
+      }
+    : { target: 'pino-pretty', options: { colorize: true } };
+
   const app = Fastify({
     logger: {
-      level: config.LOG_LEVEL,
-      transport: {
-        target: 'pino-pretty',
-        options: { colorize: true },
-      },
+      // Root level must be 'debug' so debug messages aren't dropped before
+      // reaching per-target level filters above.
+      level: 'debug',
+      transport,
     },
   });
 

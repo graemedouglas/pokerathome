@@ -18,6 +18,9 @@ const envSchema = z.object({
 
   /** Spectator card visibility mode */
   SPECTATOR_CARD_VISIBILITY: z.enum(['immediate', 'delayed', 'showdown']).default('showdown'),
+
+  /** Path to write server logs. Empty string disables file logging. */
+  LOG_FILE: z.string().default('./logs/server.log'),
 });
 
 export type Config = z.infer<typeof envSchema>;

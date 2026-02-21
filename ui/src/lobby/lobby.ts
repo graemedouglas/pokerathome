@@ -245,7 +245,10 @@ export class Lobby {
         WsClient.storeReconnectToken(payload.reconnectToken)
 
         if (payload.currentGame) {
-          // Reconnect scenario - rejoin existing game
+          // Reconnect scenario — detect spectator role from game state so the
+          // controller and renderer are initialised correctly (Bug 4 fix).
+          const myPlayer = payload.currentGame.gameState.players.find(p => p.id === this.playerId)
+          this.isSpectator = myPlayer?.role === 'spectator'
           this.finish(payload.currentGame)
           return
         }

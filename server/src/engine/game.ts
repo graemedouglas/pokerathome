@@ -751,9 +751,13 @@ function determineVisibleCards(
         : null;
 
     case 'delayed':
-      // When delayed mode is active, GameManager passes previous hand state
-      // This function naturally sees the previous hand's cards
-      return player.holeCards;
+      // When GameManager has a previousHandState, it passes that as `state` so
+      // player.holeCards are from the completed previous hand (all visible).
+      // On the first hand (previousHandState === null), GameManager falls back to
+      // active.state — so we must hide cards during play just like showdown mode.
+      return state.stage === 'SHOWDOWN' || !state.handInProgress
+        ? player.holeCards
+        : null;
 
     default:
       return null;

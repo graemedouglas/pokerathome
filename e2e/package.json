@@ -5,6 +5,7 @@
   "description": "End-to-end tests for Poker@Home",
   "scripts": {
     "test": "node test.mjs",
+    "test:spectator": "node test-spectator.mjs",
     "test:unit": "jest"
   },
   "devDependencies": {

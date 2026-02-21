@@ -196,7 +196,7 @@ export class GameManager {
     // Broadcast PLAYER_LEFT
     sessions.broadcastPersonalized(gameId, (viewerId) => ({
       action: 'gameState',
-      payload: buildGameStatePayload(active.state, result.event, viewerId),
+      payload: buildGameStatePayload(active.state, result.event, viewerId, undefined, active.spectatorVisibility),
     }));
 
     // If game is in progress and not enough players, end it
@@ -356,7 +356,7 @@ export class GameManager {
 
     sessions.broadcastPersonalized(gameId, (viewerId) => ({
       action: 'gameState',
-      payload: buildGameStatePayload(active.state, event, viewerId),
+      payload: buildGameStatePayload(active.state, event, viewerId, undefined, active.spectatorVisibility),
     }));
   }
 
@@ -374,12 +374,35 @@ export class GameManager {
       active.previousHandState !== null;
 
     const stateToSend = useDelayedState ? active.previousHandState! : active.state;
-    const lastEvent = stateToSend.handEvents[stateToSend.handEvents.length - 1];
-    if (!lastEvent) return undefined;
+
+    // Synthesize a PLAYER_JOINED event for reconnects so the UI handles it with
+    // r.update(uiState) rather than replaying FLOP/TURN/RIVER animations from an
+    // empty renderer — which would produce wrong card positions (Bug 1).
+    const reconnectPlayer = stateToSend.players.find(p => p.id === playerId);
+    if (!reconnectPlayer) return undefined;
+
+    const reconnectEvent: Event = {
+      type: 'PLAYER_JOINED',
+      playerId,
+      displayName: reconnectPlayer.displayName,
+      seatIndex: reconnectPlayer.seatIndex,
+    };
+
+    this.logger.debug(
+      {
+        playerId,
+        gameId,
+        isSpectator,
+        useDelayedState,
+        stateStage: stateToSend.stage,
+        communityCardCount: stateToSend.communityCards.length,
+      },
+      'spectator-reconnect',
+    );
 
     return buildGameStatePayload(
       stateToSend,
-      lastEvent,
+      reconnectEvent,
       playerId,
       active.state.activePlayerId === playerId ? config.ACTION_TIMEOUT_MS : undefined,
       active.spectatorVisibility
@@ -415,6 +438,39 @@ export class GameManager {
           active.previousHandState !== null;
 
         const stateToSend = useDelayedState ? active.previousHandState! : active.state;
+
+        if (isSpectator) {
+          const holeCardsRevealed = stateToSend.players.filter(
+            p => p.role === 'player' && p.holeCards !== null
+          ).length;
+          this.logger.debug(
+            {
+              spectatorId: viewerId,
+              eventType: transition.event.type,
+              stateStage: stateToSend.stage,
+              communityCardCount: stateToSend.communityCards.length,
+              handNumber: stateToSend.handNumber,
+              holeCardsRevealed,
+              useDelayedState,
+            },
+            'spectator-tx',
+          );
+        } else {
+          const myPlayer = active.state.players.find(p => p.id === viewerId);
+          this.logger.debug(
+            {
+              viewerId,
+              eventType: transition.event.type,
+              stateStage: active.state.stage,
+              communityCardCount: active.state.communityCards.length,
+              handNumber: active.state.handNumber,
+              pot: active.state.pot,
+              myHoleCards: myPlayer?.holeCards != null,
+              folded: myPlayer?.folded ?? false,
+            },
+            'player-tx',
+          );
+        }
 
         return {
           action: 'gameState',
@@ -535,7 +591,7 @@ export class GameManager {
     // Broadcast the timeout event
     sessions.broadcastPersonalized(gameId, (viewerId) => ({
       action: 'gameState',
-      payload: buildGameStatePayload(active.state, timeoutEvent, viewerId),
+      payload: buildGameStatePayload(active.state, timeoutEvent, viewerId, undefined, active.spectatorVisibility),
     }));
 
     // Then process the default action
@@ -666,7 +722,7 @@ export class GameManager {
   ): GameStateUpdatePayload | undefined {
     const active = this.activeGames.get(gameId);
     if (!active) return undefined;
-    return buildGameStatePayload(active.state, event, viewerPlayerId, config.ACTION_TIMEOUT_MS);
+    return buildGameStatePayload(active.state, event, viewerPlayerId, config.ACTION_TIMEOUT_MS, active.spectatorVisibility);
   }
 
   isGameActive(gameId: string): boolean {

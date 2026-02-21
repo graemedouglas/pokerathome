@@ -8,7 +8,8 @@
       "Bash(pnpm test:*)",
       "Bash(pnpm build:*)",
       "Bash(timeout 10 pnpm dev:*)",
-      "Bash(timeout 8 pnpm dev:*)"
+      "Bash(timeout 8 pnpm dev:*)",
+      "Bash(pnpm exec tsc:*)"
     ]
   }
 }

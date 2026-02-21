@@ -127,6 +127,15 @@ export class GameController {
 
     // Process initial state first (if any)
     if (initialState) {
+      if (this.isSpectator) {
+        console.debug(
+          '[Spectator] attachRenderer: initial state',
+          initialState.event.type,
+          '| stage:', initialState.gameState.stage,
+          '| community:', initialState.gameState.communityCards.length,
+          '| hand:', initialState.gameState.handNumber,
+        )
+      }
       this.chain = this.chain
         .then(() => this.handleGameState(initialState))
         .catch(err => console.error('[GameController] initial state error:', err))
@@ -166,6 +175,18 @@ export class GameController {
 
   private async handleGameState(payload: GameStateUpdatePayload): Promise<void> {
     const { gameState: serverState, event, actionRequest } = payload
+
+    if (this.isSpectator) {
+      const prevCount = this.lastServerState?.communityCards.length ?? -1
+      const newCount = serverState.communityCards.length
+      console.debug(
+        '[Spectator] event:', event.type,
+        '| stage:', serverState.stage,
+        '| community:', newCount,
+        prevCount >= 0 && newCount < prevCount ? `⚠️ DECREASED from ${prevCount}!` : `(was ${prevCount})`,
+        '| hand:', serverState.handNumber,
+      )
+    }
 
     this.lastServerState = serverState
     this.currentHandNumber = serverState.handNumber

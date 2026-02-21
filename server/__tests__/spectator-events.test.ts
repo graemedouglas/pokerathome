@@ -17,6 +17,7 @@ import {
   startHand,
   processAction,
   cloneState,
+  toClientGameState,
   type EngineState,
   type Transition,
 } from '../src/engine/game';
@@ -328,5 +329,151 @@ describe('delayed mode — second hand uses current state (fix verification)', (
   test('HAND_START event for hand 2 has stage PRE_FLOP', () => {
     const msg = hand2Messages.find(m => m.eventType === 'HAND_START')!;
     expect(msg.stateStage).toBe('PRE_FLOP');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// showdown mode — hole card visibility
+//
+// Spectators in showdown mode must see null hole cards during play, and
+// non-null hole cards at (and after) SHOWDOWN. Uses toClientGameState directly
+// to verify what the server actually sends per transition.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('showdown mode — hole card visibility per transition', () => {
+  interface ShowdownVisMsg {
+    eventType: string;
+    stage: string;
+    handInProgress: boolean;
+    holeCardCount: number;
+    communityCardCount: number;
+  }
+
+  let messages: ShowdownVisMsg[];
+
+  beforeAll(() => {
+    const state = createSpectatorGame();
+    const { transitions } = playHandToShowdown(state, RIGGED_DECK);
+
+    messages = transitions.map(t => {
+      const clientState = toClientGameState(t.state, 'spectator-1', 'showdown');
+      const holeCardCount = clientState.players.filter(
+        p => p.role !== 'spectator' && p.holeCards !== null
+      ).length;
+      return {
+        eventType: t.event.type,
+        stage: t.state.stage,
+        handInProgress: t.state.handInProgress,
+        holeCardCount,
+        communityCardCount: t.state.communityCards.length,
+      };
+    });
+  });
+
+  test('spectator never sees hole cards before SHOWDOWN stage', () => {
+    const priorToShowdown = messages.filter(m => m.handInProgress && m.stage !== 'SHOWDOWN');
+    expect(priorToShowdown.length).toBeGreaterThan(0);
+    for (const msg of priorToShowdown) {
+      expect(msg.holeCardCount).toBe(0);
+    }
+  });
+
+  test('spectator sees hole cards at SHOWDOWN stage', () => {
+    const showdownMsg = messages.find(m => m.eventType === 'SHOWDOWN');
+    expect(showdownMsg).toBeDefined();
+    expect(showdownMsg!.holeCardCount).toBeGreaterThan(0);
+  });
+
+  test('community cards never decrease across consecutive transitions', () => {
+    let prev = -1;
+    for (const msg of messages) {
+      if (msg.eventType === 'HAND_START') {
+        // Reset allowed only at new hand
+        prev = msg.communityCardCount;
+        continue;
+      }
+      expect(msg.communityCardCount).toBeGreaterThanOrEqual(prev);
+      prev = msg.communityCardCount;
+    }
+  });
+
+  test('FLOP event state has exactly 3 community cards', () => {
+    const flop = messages.find(m => m.eventType === 'FLOP');
+    expect(flop).toBeDefined();
+    expect(flop!.communityCardCount).toBe(3);
+  });
+
+  test('TURN event state has exactly 4 community cards', () => {
+    const turn = messages.find(m => m.eventType === 'TURN');
+    expect(turn).toBeDefined();
+    expect(turn!.communityCardCount).toBe(4);
+  });
+
+  test('RIVER event state has exactly 5 community cards', () => {
+    const river = messages.find(m => m.eventType === 'RIVER');
+    expect(river).toBeDefined();
+    expect(river!.communityCardCount).toBe(5);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// delayed mode — hole card visibility on first hand (Bug 2 regression test)
+//
+// Before the fix, `determineVisibleCards` always returned player.holeCards for
+// the 'delayed' case, showing hole cards during active play on the first hand
+// (when previousHandState === null, so active.state is sent, not previousHandState).
+// After the fix, delayed behaves like showdown: cards hidden during play.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('delayed mode — first hand hole cards hidden during play (Bug 2 fix)', () => {
+  interface VisMessage {
+    eventType: string;
+    stage: string;
+    handInProgress: boolean;
+    holeCardCount: number;
+  }
+
+  let messages: VisMessage[];
+
+  beforeAll(() => {
+    const state = createSpectatorGame();
+    const { transitions } = playHandToShowdown(state, RIGGED_DECK);
+
+    // On first hand, previousHandState === null so GameManager sends active.state.
+    // We simulate that by just using the current transition state with delayed mode.
+    messages = transitions.map(t => {
+      const clientState = toClientGameState(t.state, 'spectator-1', 'delayed');
+      const holeCardCount = clientState.players.filter(
+        p => p.role !== 'spectator' && p.holeCards !== null
+      ).length;
+      return {
+        eventType: t.event.type,
+        stage: t.state.stage,
+        handInProgress: t.state.handInProgress,
+        holeCardCount,
+      };
+    });
+  });
+
+  test('hole cards are null during active play (PRE_FLOP / FLOP / TURN / RIVER stages)', () => {
+    const duringPlay = messages.filter(m => m.handInProgress && m.stage !== 'SHOWDOWN');
+    // There must be at least some such transitions
+    expect(duringPlay.length).toBeGreaterThan(0);
+    for (const msg of duringPlay) {
+      expect(msg.holeCardCount).toBe(0);
+    }
+  });
+
+  test('hole cards are visible at SHOWDOWN', () => {
+    const showdownMsg = messages.find(m => m.eventType === 'SHOWDOWN');
+    expect(showdownMsg).toBeDefined();
+    expect(showdownMsg!.holeCardCount).toBeGreaterThan(0);
+  });
+
+  test('hole cards are visible when hand is not in progress (HAND_END)', () => {
+    const handEndMsg = messages.find(m => m.eventType === 'HAND_END');
+    expect(handEndMsg).toBeDefined();
+    expect(handEndMsg!.handInProgress).toBe(false);
+    expect(handEndMsg!.holeCardCount).toBeGreaterThan(0);
   });
 });
