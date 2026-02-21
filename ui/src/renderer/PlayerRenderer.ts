@@ -302,41 +302,57 @@ export class PlayerRenderer extends Container {
     const cardKey = cardData.map(c => c.code).join(',');
 
     if (cardKey !== this.prevCardKey) {
-      // Cards changed — recreate sprites
-      this.cardContainer.removeChildren();
-      this.cards = [];
-      const overlap = CARD_WIDTH * 0.35;
+      // Check if this is a showdown reveal (hidden backs → real cards)
+      const isShowdownReveal = this.prevCardKey === '_hidden,_hidden'
+        && hasRealCards && showFace && this.cards.length === cardData.length;
 
-      for (let i = 0; i < cardData.length; i++) {
-        const card = new CardSprite(cardData[i], this.app, showFace);
-        const targetX = (i - 0.5) * (CARD_WIDTH - overlap);
-        const targetRotation = (i - 0.5) * 0.06;
+      if (isShowdownReveal) {
+        // Swap face textures and flip existing card backs in place
+        for (let i = 0; i < this.cards.length; i++) {
+          this.cards[i].updateFace(cardData[i], this.app);
+          const flipDelay = i * 100;
+          setTimeout(() => {
+            this.cards[i].flipAnimation(this.app.ticker, true);
+          }, flipDelay);
+        }
+        this.prevCardKey = cardKey;
+      } else {
+        // Cards changed — recreate sprites
+        this.cardContainer.removeChildren();
+        this.cards = [];
+        const overlap = CARD_WIDTH * 0.35;
 
-        const globalCenter = { x: TABLE_CENTER_X, y: TABLE_CENTER_Y };
-        const localCenter = this.cardContainer.toLocal(globalCenter, undefined);
+        for (let i = 0; i < cardData.length; i++) {
+          const card = new CardSprite(cardData[i], this.app, showFace);
+          const targetX = (i - 0.5) * (CARD_WIDTH - overlap);
+          const targetRotation = (i - 0.5) * 0.06;
 
-        card.x = localCenter.x;
-        card.y = localCenter.y;
-        card.alpha = 0;
-        card.scale.set(0.3);
-        card.rotation = 0;
+          const globalCenter = { x: TABLE_CENTER_X, y: TABLE_CENTER_Y };
+          const localCenter = this.cardContainer.toLocal(globalCenter, undefined);
 
-        this.cards.push(card);
-        this.cardContainer.addChild(card);
+          card.x = localCenter.x;
+          card.y = localCenter.y;
+          card.alpha = 0;
+          card.scale.set(0.3);
+          card.rotation = 0;
 
-        const staggerDelay = i * 80;
-        setTimeout(() => {
-          tween(this.app.ticker, {
-            target: card, duration: 350, easing: easeOutBack,
-            props: { x: targetX, y: 0, scaleX: 1, scaleY: 1 },
-          });
-          tween(this.app.ticker, {
-            target: card, duration: 250, easing: easeOutCubic,
-            props: { alpha: 1, rotation: targetRotation },
-          });
-        }, staggerDelay);
+          this.cards.push(card);
+          this.cardContainer.addChild(card);
+
+          const staggerDelay = i * 80;
+          setTimeout(() => {
+            tween(this.app.ticker, {
+              target: card, duration: 350, easing: easeOutBack,
+              props: { x: targetX, y: 0, scaleX: 1, scaleY: 1 },
+            });
+            tween(this.app.ticker, {
+              target: card, duration: 250, easing: easeOutCubic,
+              props: { alpha: 1, rotation: targetRotation },
+            });
+          }, staggerDelay);
+        }
+        this.prevCardKey = cardKey;
       }
-      this.prevCardKey = cardKey;
     } else {
       // Same cards — just update face/back visibility
       for (let i = 0; i < this.cards.length; i++) {

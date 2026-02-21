@@ -207,6 +207,14 @@ export class CardSprite extends Container {
     this.backSprite.visible = !faceUp;
   }
 
+  updateFace(card: Card, app: AppLike): void {
+    const faceKey = card.code;
+    if (!textureCache.has(faceKey)) {
+      textureCache.set(faceKey, createCardFaceTexture(card, app));
+    }
+    this.faceSprite.texture = textureCache.get(faceKey)!;
+  }
+
   async flipAnimation(ticker: Ticker, faceUp: boolean): Promise<void> {
     await tween(ticker, {
       target: this,
