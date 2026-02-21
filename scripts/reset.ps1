@@ -127,12 +127,14 @@ if ($Start) {
   Write-Host "  Admin:   http://localhost:3001"
   Write-Host "  API:     http://127.0.0.1:3000/api/games"
   Write-Host ""
-  Write-Host "Press Ctrl+C to stop. Then run: .\scripts\kill-dev.ps1"
+  Write-Host "Press Ctrl+C to stop."
 
   # Wait for jobs
   try {
     Wait-Job -Job $serverJob, $uiJob, $adminJob -Any | Out-Null
   } finally {
+    Write-Host "`nStopping..."
+    & (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "kill-dev.ps1")
     Stop-Job -Job $serverJob, $uiJob, $adminJob -ErrorAction SilentlyContinue
     Remove-Job -Job $serverJob, $uiJob, $adminJob -Force -ErrorAction SilentlyContinue
   }
