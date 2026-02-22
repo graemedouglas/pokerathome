@@ -15,6 +15,9 @@ export default defineConfig({
         target: "ws://0.0.0.0:3000",
         ws: true,
       },
+      "/api": {
+        target: "http://0.0.0.0:3000",
+      },
     },
   },
 });
