@@ -14,7 +14,7 @@ import type {
   ReplayFile,
 } from '@pokerathome/schema';
 import type { SessionManager } from '../ws/session.js';
-import { toClientGameState, type EngineState } from '../engine/game.js';
+import type { EngineState } from '../engine/game.js';
 
 interface SpectatorPlaybackState {
   position: number;
@@ -271,54 +271,49 @@ export class ReplayInstance {
     });
   }
 
-  /** Build client game state with replay-specific card visibility. */
+  /** Build client game state directly from engine state with replay card visibility. */
   private toReplayClientState(
     engineState: EngineState,
-    viewerId: string,
+    _viewerId: string,
     spectatorState: SpectatorPlaybackState,
   ): GameState {
-    // The viewer (replay spectator) isn't in the engine state's player list.
-    // Temporarily add them so toClientGameState recognises them as a spectator
-    // and applies 'immediate' visibility (show all hole cards).
-    const viewerInState = engineState.players.some(p => p.id === viewerId);
-    const stateForView = viewerInState ? engineState : {
-      ...engineState,
-      players: [
-        ...engineState.players,
-        {
-          id: viewerId,
-          displayName: 'Replay Viewer',
-          seatIndex: engineState.maxPlayers + 100,
-          role: 'spectator' as const,
-          stack: 0,
-          bet: 0,
-          potShare: 0,
-          folded: false,
-          holeCards: null,
-          connected: true,
-          isAllIn: false,
-          isReady: false,
-        },
-      ],
-    };
-    const baseRaw = toClientGameState(stateForView, viewerId, 'immediate');
-    // Remove the temporary viewer from the player list
-    const base = {
-      ...baseRaw,
-      players: baseRaw.players.filter(p => p.id !== viewerId),
+    // Build client state directly — always include all hole cards from the recording.
+    // This bypasses toClientGameState() so replay visibility is independent of the
+    // live spectator mode the game was originally played with.
+    const base: GameState = {
+      gameId: engineState.gameId,
+      gameType: engineState.gameType,
+      handNumber: engineState.handNumber,
+      stage: engineState.stage,
+      communityCards: engineState.communityCards,
+      pot: engineState.pot,
+      pots: engineState.pots,
+      dealerSeatIndex: engineState.dealerSeatIndex,
+      smallBlindAmount: engineState.smallBlindAmount,
+      bigBlindAmount: engineState.bigBlindAmount,
+      activePlayerId: engineState.activePlayerId,
+      players: engineState.players
+        .filter(p => p.role !== 'spectator')
+        .map(p => ({
+          id: p.id,
+          displayName: p.displayName,
+          seatIndex: p.seatIndex,
+          role: p.role,
+          stack: p.stack,
+          bet: p.bet,
+          potShare: p.potShare,
+          folded: p.folded,
+          holeCards: p.holeCards,
+          connected: p.connected,
+        })),
     };
 
     if (spectatorState.showAllCards) {
-      // Show all cards, but respect per-player hides
       return {
         ...base,
         players: base.players.map(p => {
-          if (p.role === 'spectator') return p;
           const explicitlyHidden = spectatorState.playerVisibility.get(p.id) === false;
-          if (explicitlyHidden) {
-            return { ...p, holeCards: null };
-          }
-          return p;
+          return explicitlyHidden ? { ...p, holeCards: null } : p;
         }),
       };
     }
@@ -327,12 +322,8 @@ export class ReplayInstance {
     return {
       ...base,
       players: base.players.map(p => {
-        if (p.role === 'spectator') return p;
         const explicitlyVisible = spectatorState.playerVisibility.get(p.id) === true;
-        if (!explicitlyVisible) {
-          return { ...p, holeCards: null };
-        }
-        return p;
+        return explicitlyVisible ? p : { ...p, holeCards: null };
       }),
     };
   }

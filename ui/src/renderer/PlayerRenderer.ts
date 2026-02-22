@@ -49,6 +49,7 @@ export class PlayerRenderer extends Container {
   private actionPopText: Text | null = null;
   private actionPopTimeout: ReturnType<typeof setTimeout> | null = null;
   private handDescText: Text;
+  private isReplayMode = false;
 
   constructor(seatIndex: number, app: AppLike) {
     super();
@@ -199,6 +200,10 @@ export class PlayerRenderer extends Container {
     }
   }
 
+  setReplayMode(enabled: boolean): void {
+    this.isReplayMode = enabled;
+  }
+
   update(player: Player, phase: GamePhase, isWinner: boolean): void {
     // Avatar ΓÇö positioned to the side of the panel
     if (player.avatarId !== this.currentAvatarId) {
@@ -294,7 +299,7 @@ export class PlayerRenderer extends Container {
       return;
     }
 
-    const showFace = hasRealCards && (player.isHuman || phase === 'showdown');
+    const showFace = hasRealCards && (player.isHuman || phase === 'showdown' || this.isReplayMode);
     const cardData = hasRealCards ? player.holeCards : [HIDDEN_CARD, HIDDEN_CARD];
 
     // Build a key from the card codes so we detect when cards actually change

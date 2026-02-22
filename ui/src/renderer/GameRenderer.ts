@@ -110,6 +110,9 @@ export class GameRenderer {
       this.playerRenderers.push(pr);
       this.playerLayer.addChild(pr);
     }
+    if (this.isReplayMode) {
+      for (const pr of this.playerRenderers) pr.setReplayMode(true);
+    }
 
     // Community cards
     this.communityCards = new CommunityCards(this.app);
