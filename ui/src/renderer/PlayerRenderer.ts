@@ -307,6 +307,29 @@ export class PlayerRenderer extends Container {
     const cardKey = cardData.map(c => c.code).join(',');
 
     if (cardKey !== this.prevCardKey) {
+      // Replay mode: visibility toggle — flip existing cards in place (no dealing animation)
+      if (this.isReplayMode && this.cards.length > 0 && this.cards.length === cardData.length) {
+        const wasHidden = this.prevCardKey === '_hidden,_hidden';
+        const nowHidden = cardKey === '_hidden,_hidden';
+
+        if (wasHidden && !nowHidden && showFace) {
+          for (let i = 0; i < this.cards.length; i++) {
+            this.cards[i].updateFace(cardData[i], this.app);
+            this.cards[i].flipAnimation(this.app.ticker, true);
+          }
+          this.prevCardKey = cardKey;
+          return;
+        }
+
+        if (!wasHidden && nowHidden && this.prevCardKey !== '') {
+          for (const card of this.cards) {
+            card.flipAnimation(this.app.ticker, false);
+          }
+          this.prevCardKey = cardKey;
+          return;
+        }
+      }
+
       // Check if this is a showdown reveal (hidden backs → real cards)
       const isShowdownReveal = this.prevCardKey === '_hidden,_hidden'
         && hasRealCards && showFace && this.cards.length === cardData.length;
