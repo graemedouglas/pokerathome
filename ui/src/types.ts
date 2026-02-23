@@ -60,6 +60,8 @@ export interface GameState {
   dealerIndex: number
   winners: WinnerInfo[]
   handNumber: number
+  smallBlindAmount: number
+  bigBlindAmount: number
 }
 
 export interface WinnerInfo {

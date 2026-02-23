@@ -342,7 +342,9 @@ export class GameRenderer {
 
     this.communityCards.update(state.communityCards);
     this.potDisplay.update(state.pot);
-    this.handInfoText.text = state.handNumber > 0 ? `Hand #${state.handNumber}` : '';
+    this.handInfoText.text = state.handNumber > 0
+      ? `Hand #${state.handNumber}  $${state.smallBlindAmount}/$${state.bigBlindAmount}`
+      : '';
     this.phaseText.text = PHASE_LABELS[state.phase] || '';
 
     // Status line — context-aware feedback

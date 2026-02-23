@@ -48,16 +48,15 @@ export class InfoPanel extends Container {
     bg.hitArea = { contains: (x: number, y: number) => x >= 0 && x <= 36 && y >= -32 && y <= 0 };
     this.toggleBtn.addChild(bg);
 
-    // Chat/log icon ΓÇö speech bubble
+    // Log icon — notepad with lines
     const icon = new Graphics();
-    icon.roundRect(8, -26, 20, 14, 3);
+    icon.roundRect(10, -28, 16, 20, 2);
     icon.fill(COLORS.textMuted);
-    // Small triangle for speech bubble tail
-    icon.moveTo(12, -12);
-    icon.lineTo(15, -8);
-    icon.lineTo(18, -12);
-    icon.closePath();
-    icon.fill(COLORS.textMuted);
+    // Three horizontal lines (text lines)
+    icon.rect(13, -24, 10, 1.5);
+    icon.rect(13, -20, 10, 1.5);
+    icon.rect(13, -16, 7, 1.5);
+    icon.fill(0x181830);
     this.toggleBtn.addChild(icon);
 
     bg.on('pointerdown', () => this.toggle());

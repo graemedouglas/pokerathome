@@ -116,6 +116,8 @@ export function adaptGameState(
     dealerIndex: server.dealerSeatIndex,
     winners: ctx.winners ?? [],
     handNumber: server.handNumber,
+    smallBlindAmount: server.smallBlindAmount,
+    bigBlindAmount: server.bigBlindAmount,
   }
 }
 
