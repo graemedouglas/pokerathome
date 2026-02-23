@@ -466,6 +466,47 @@ describe('Spectator separation', () => {
     expect(ui.spectators).toEqual([])
   })
 
+  test('spectator sees real holeCards and hasHiddenCards=false in immediate mode', () => {
+    // Simulate what the server sends to a spectator in "Public" (immediate) mode:
+    // all players have their holeCards populated.
+    const SPECTATOR_ID = 'spectator-uuid'
+    const server = makeServerState({
+      stage: 'PRE_FLOP',
+      players: [
+        makePlayer({ id: PLAYER_A_ID, seatIndex: 0, role: 'player', displayName: 'Alice', holeCards: ['Ah', 'Kh'] }),
+        makePlayer({ id: PLAYER_B_ID, seatIndex: 1, role: 'player', displayName: 'Bob', holeCards: ['2c', '2d'] }),
+      ],
+    })
+    // Spectator's myPlayerId doesn't match any player
+    const ctx = baseCtx({ myPlayerId: SPECTATOR_ID, cardsDealt: true })
+    const ui = adaptGameState(server, ctx)
+
+    for (const player of ui.players) {
+      expect(player.holeCards).toHaveLength(2)
+      expect(player.hasHiddenCards).toBe(false)
+      // isHuman should be false for all players from spectator's perspective
+      expect(player.isHuman).toBe(false)
+    }
+  })
+
+  test('spectator sees card backs when server withholds holeCards (showdown mode)', () => {
+    const SPECTATOR_ID = 'spectator-uuid'
+    const server = makeServerState({
+      stage: 'PRE_FLOP',
+      players: [
+        makePlayer({ id: PLAYER_A_ID, seatIndex: 0, role: 'player', displayName: 'Alice', holeCards: null }),
+        makePlayer({ id: PLAYER_B_ID, seatIndex: 1, role: 'player', displayName: 'Bob', holeCards: null }),
+      ],
+    })
+    const ctx = baseCtx({ myPlayerId: SPECTATOR_ID, cardsDealt: true })
+    const ui = adaptGameState(server, ctx)
+
+    for (const player of ui.players) {
+      expect(player.holeCards).toHaveLength(0)
+      expect(player.hasHiddenCards).toBe(true)
+    }
+  })
+
   test('spectators are not included in player seatIndex lookup', () => {
     const server = makeServerState({
       players: [

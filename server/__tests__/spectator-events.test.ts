@@ -551,6 +551,83 @@ describe('joinGame initial state — spectator visibility (Bug 5 fix)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// immediate mode — hole card visibility per transition
+//
+// Spectators in immediate mode must see non-null hole cards for EVERY transition
+// after the deal, not just at SHOWDOWN. This is the server-side complement to the
+// UI fix in PlayerRenderer (showFace = hasRealCards).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('immediate mode — hole card visibility per transition', () => {
+  interface ImmediateVisMsg {
+    eventType: string;
+    stage: string;
+    handInProgress: boolean;
+    holeCardCount: number;
+  }
+
+  let messages: ImmediateVisMsg[];
+
+  beforeAll(() => {
+    const state = createSpectatorGame();
+    const { transitions } = playHandToShowdown(state, RIGGED_DECK);
+
+    messages = transitions.map(t => {
+      const clientState = toClientGameState(t.state, 'spectator-1', 'immediate');
+      const holeCardCount = clientState.players.filter(
+        p => p.role !== 'spectator' && p.holeCards !== null
+      ).length;
+      return {
+        eventType: t.event.type,
+        stage: t.state.stage,
+        handInProgress: t.state.handInProgress,
+        holeCardCount,
+      };
+    });
+  });
+
+  test('spectator sees hole cards for every transition after DEAL', () => {
+    const dealIdx = messages.findIndex(m => m.eventType === 'DEAL');
+    expect(dealIdx).toBeGreaterThan(-1);
+    const afterDeal = messages.slice(dealIdx);
+    for (const msg of afterDeal) {
+      expect(msg.holeCardCount).toBeGreaterThan(0);
+    }
+  });
+
+  test('spectator sees hole cards during PRE_FLOP after DEAL (not just showdown)', () => {
+    const dealIdx = messages.findIndex(m => m.eventType === 'DEAL');
+    const preFlopAfterDeal = messages.filter(
+      (m, i) => i >= dealIdx && m.stage === 'PRE_FLOP' && m.handInProgress
+    );
+    expect(preFlopAfterDeal.length).toBeGreaterThan(0);
+    for (const msg of preFlopAfterDeal) {
+      expect(msg.holeCardCount).toBeGreaterThan(0);
+    }
+  });
+
+  test('spectator sees hole cards during FLOP, TURN, RIVER stages', () => {
+    for (const stage of ['FLOP', 'TURN', 'RIVER']) {
+      const stageMessages = messages.filter(m => m.stage === stage);
+      expect(stageMessages.length).toBeGreaterThan(0);
+      for (const msg of stageMessages) {
+        expect(msg.holeCardCount).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test('spectator sees hole cards at SHOWDOWN and HAND_END', () => {
+    const showdownMsg = messages.find(m => m.eventType === 'SHOWDOWN');
+    expect(showdownMsg).toBeDefined();
+    expect(showdownMsg!.holeCardCount).toBeGreaterThan(0);
+
+    const handEndMsg = messages.find(m => m.eventType === 'HAND_END');
+    expect(handEndMsg).toBeDefined();
+    expect(handEndMsg!.holeCardCount).toBeGreaterThan(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Mid-hand spectator join — hand history sent (flop-sent-early regression)
 //
 // When a spectator joins mid-hand, the server sends state.handEvents so the UI

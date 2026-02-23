@@ -299,7 +299,7 @@ export class PlayerRenderer extends Container {
       return;
     }
 
-    const showFace = hasRealCards && (player.isHuman || phase === 'showdown' || this.isReplayMode);
+    const showFace = hasRealCards;
     const cardData = hasRealCards ? player.holeCards : [HIDDEN_CARD, HIDDEN_CARD];
 
     // Build a key from the card codes so we detect when cards actually change
