@@ -32,6 +32,14 @@ export function initDb(logger: FastifyBaseLogger): Database.Database {
     logger.info('Migrated: added spectator_visibility column to games');
   }
 
+  // Migrate: add tournament columns to existing databases
+  if (!cols.some(c => c.name === 'tournament_length_hours')) {
+    db.exec(`ALTER TABLE games ADD COLUMN tournament_length_hours REAL`);
+    db.exec(`ALTER TABLE games ADD COLUMN round_length_minutes INTEGER`);
+    db.exec(`ALTER TABLE games ADD COLUMN antes_enabled INTEGER NOT NULL DEFAULT 0`);
+    logger.info('Migrated: added tournament columns to games');
+  }
+
   logger.info({ dbPath: config.DB_PATH }, 'Database initialized');
   return db;
 }

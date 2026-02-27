@@ -49,6 +49,7 @@ export class PlayerRenderer extends Container {
   private actionPopText: Text | null = null;
   private actionPopTimeout: ReturnType<typeof setTimeout> | null = null;
   private handDescText: Text;
+  private sittingOutOverlay: Container;
   private isReplayMode = false;
 
   constructor(seatIndex: number, app: AppLike) {
@@ -128,6 +129,27 @@ export class PlayerRenderer extends Container {
     this.betChips.x = betOff.x;
     this.betChips.y = betOff.y;
     this.addChild(this.betChips);
+
+    // Sitting-out overlay — prominent banner over the player panel
+    this.sittingOutOverlay = new Container();
+    this.sittingOutOverlay.visible = false;
+    const sittingOutBg = new Graphics();
+    sittingOutBg.roundRect(-PANEL_W / 2, -PANEL_H / 2, PANEL_W, PANEL_H, 10);
+    sittingOutBg.fill({ color: 0x000000, alpha: 0.75 });
+    this.sittingOutOverlay.addChild(sittingOutBg);
+    const sittingOutLabel = new Text({
+      text: 'SITTING OUT',
+      style: {
+        fontSize: 14,
+        fill: 0xef4444,
+        fontFamily: 'Arial',
+        fontWeight: 'bold',
+        letterSpacing: 2,
+      },
+    });
+    sittingOutLabel.anchor.set(0.5);
+    this.sittingOutOverlay.addChild(sittingOutLabel);
+    this.addChild(this.sittingOutOverlay);
 
     // Hand description (e.g., "Pair, J's") — shown below cards for the human player
     this.handDescText = new Text({
@@ -251,9 +273,8 @@ export class PlayerRenderer extends Container {
       this.statusText.style.fill = 0xff6644;
       this.alpha = 1;
     } else if (player.isSittingOut) {
-      this.statusText.text = 'SITTING OUT';
-      this.statusText.style.fill = 0x888888;
-      this.alpha = 0.6;
+      this.statusText.text = '';
+      this.alpha = 0.8;
     } else {
       this.statusText.text = '';
       this.alpha = 1;
@@ -284,6 +305,9 @@ export class PlayerRenderer extends Container {
 
     // Bet chips
     this.betChips.update(player.currentBet);
+
+    // Sitting-out overlay
+    this.sittingOutOverlay.visible = player.isSittingOut && !player.isFolded;
 
     this.drawPanel(isWinner && phase === 'showdown');
     this.updateCards(player, phase);

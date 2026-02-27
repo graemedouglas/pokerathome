@@ -930,7 +930,7 @@ export function toClientGameState(
     smallBlindAmount: state.smallBlindAmount,
     bigBlindAmount: state.bigBlindAmount,
     activePlayerId: state.activePlayerId,
-    ...(state.gameType === 'tournament' && state.blindSchedule.length > 0
+    ...(state.gameType === 'tournament'
       ? { tournament: buildTournamentState(state, tournamentOverrides) }
       : {}),
   };

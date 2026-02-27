@@ -69,6 +69,7 @@ interface ActiveGame {
   blindTimerStartedAt: number | null; // When the current blind timer was started
   blindTimerDurationMs: number | null; // Total duration of current blind timer
   pendingBlindIncrease: boolean;
+  waitingForPlayers: boolean;
   tournamentStartedAt: number | null;
   tournamentConfig: TournamentConfig | null;
 }
@@ -165,6 +166,7 @@ export class GameManager {
       blindTimerStartedAt: null,
       blindTimerDurationMs: null,
       pendingBlindIncrease: false,
+      waitingForPlayers: false,
       tournamentStartedAt: null,
       tournamentConfig,
     };
@@ -348,6 +350,12 @@ export class GameManager {
     const players = active.state.players.filter((p) => p.role === 'player' && p.stack > 0);
     if (players.length < 2) return false;
 
+    // Tournament games must have a valid config
+    if (active.state.gameType === 'tournament' && !active.tournamentConfig) {
+      this.logger.warn({ gameId }, 'Tournament game missing config — cannot start');
+      return false;
+    }
+
     // Mark all players as ready
     for (const p of players) {
       active.state = setPlayerReady(active.state, p.id);
@@ -406,6 +414,33 @@ export class GameManager {
     if (playersWithChips.length < 2) {
       this.endGame(gameId, 'completed', sessions);
       return;
+    }
+
+    // Tournament: pause if not enough active (non-sitting-out) players
+    if (isTournament) {
+      const activePlayers = playersWithChips.filter(p => !p.sittingOut);
+      if (activePlayers.length < 2) {
+        active.isPaused = true;
+        active.waitingForPlayers = true;
+        this.clearBlindTimers(active);
+
+        // Preserve remaining blind time so it resumes correctly
+        if (active.blindTimerStartedAt != null && active.blindTimerDurationMs != null) {
+          const elapsed = Date.now() - active.blindTimerStartedAt;
+          active.pausedBlindRemainingMs = Math.max(0, active.blindTimerDurationMs - elapsed);
+        }
+
+        const event: Event = { type: 'TOURNAMENT_PAUSED' };
+        active.recorder?.recordEvent(event, active.state);
+        const overrides = this.getTournamentOverrides(active);
+        sessions.broadcastPersonalized(gameId, (viewerId) => ({
+          action: 'gameState',
+          payload: buildGameStatePayload(active.state, event, viewerId, undefined, active.spectatorVisibility, overrides),
+        }));
+
+        this.logger.info({ gameId, activePlayers: activePlayers.length, totalWithChips: playersWithChips.length }, 'Tournament paused — waiting for players to return');
+        return;
+      }
     }
 
     // Apply pending blind increase (timer expired between hands)
@@ -991,6 +1026,40 @@ export class GameManager {
     }));
 
     this.logger.info({ gameId, playerId, sittingOut }, 'Player sit-out toggled');
+
+    // Player returning while tournament is waiting for players — check if we can resume
+    if (!sittingOut && active.waitingForPlayers && active.state.gameType === 'tournament') {
+      const playersWithChips = active.state.players.filter(p => p.role === 'player' && p.stack > 0);
+      const activePlayers = playersWithChips.filter(p => !p.sittingOut);
+      if (activePlayers.length >= 2) {
+        active.isPaused = false;
+        active.waitingForPlayers = false;
+
+        // Resume blind timer
+        const remainingMs = active.pausedBlindRemainingMs;
+        active.pausedBlindRemainingMs = null;
+        if (remainingMs != null && remainingMs > 0) {
+          this.startBlindTimer(gameId, sessions, remainingMs);
+        } else if (active.tournamentConfig) {
+          this.startBlindTimer(gameId, sessions);
+        }
+
+        // Broadcast TOURNAMENT_RESUMED
+        const resumeEvent: Event = { type: 'TOURNAMENT_RESUMED' };
+        active.recorder?.recordEvent(resumeEvent, active.state);
+        const resumeOverrides = this.getTournamentOverrides(active);
+        sessions.broadcastPersonalized(gameId, (viewerId) => ({
+          action: 'gameState',
+          payload: buildGameStatePayload(active.state, resumeEvent, viewerId, undefined, active.spectatorVisibility, resumeOverrides),
+        }));
+
+        this.logger.info({ gameId, activePlayers: activePlayers.length }, 'Tournament resumed — enough players returned');
+
+        // Start the next hand
+        setTimeout(() => this.startNextHand(gameId, sessions), config.HAND_DELAY_MS);
+        return;
+      }
+    }
 
     // If the player just came back and they're the active player in a tournament,
     // they should get their normal action timer (already handled by broadcast above).

@@ -407,7 +407,10 @@ export class GameRenderer {
 
     // Status line — context-aware feedback
     const currentPlayer = state.players.find(p => p.isCurrent);
-    if (currentPlayer && !currentPlayer.isHuman) {
+    if (state.tournament?.isPaused && state.phase !== 'waiting') {
+      this.statusText.text = 'Waiting for players to return...';
+      this.statusText.style.fill = 0xef4444;
+    } else if (currentPlayer && !currentPlayer.isHuman) {
       this.statusText.text = `Waiting for ${currentPlayer.name}...`;
       this.statusText.style.fill = 0x94a3b8;
     } else if (state.phase === 'waiting') {
@@ -437,6 +440,15 @@ export class GameRenderer {
       this.winnerBanner.visible = false;
     } else {
       this.winnerBanner.visible = false;
+    }
+
+    // Sync sit-out button state from server (e.g. timeout sets sittingOut server-side)
+    if (this.sitOutButton && this.sitOutButtonText) {
+      const humanPlayer = state.players.find(p => p.isHuman);
+      if (humanPlayer && humanPlayer.isSittingOut !== this.isSittingOut) {
+        this.isSittingOut = humanPlayer.isSittingOut;
+        this.sitOutButtonText.text = this.isSittingOut ? "I'm Back" : 'Sit Out';
+      }
     }
 
     // Update spectator panel

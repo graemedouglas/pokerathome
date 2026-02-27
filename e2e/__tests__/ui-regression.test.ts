@@ -663,4 +663,41 @@ describe('tournament state mapping', () => {
     expect(ui.tournament!.roundLengthMs).toBe(900000)
     expect(ui.tournament!.startedAt).toBe(now - 1000000)
   })
+
+  test('tournament with empty blindSchedule still has tournament field', () => {
+    const tournamentState = makeTournamentState({
+      blindSchedule: [],
+      currentBlindLevel: 0,
+    })
+    const server = makeServerState({
+      gameType: 'tournament',
+      tournament: tournamentState,
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    expect(ui.tournament).toBeDefined()
+    expect(ui.tournament!.blindSchedule).toHaveLength(0)
+  })
+
+  test('sitting-out player in paused tournament is correctly represented', () => {
+    const tournamentState = makeTournamentState({
+      isPaused: true,
+      nextBlindChangeAt: null,
+    })
+    const server = makeServerState({
+      gameType: 'tournament',
+      tournament: tournamentState,
+      players: [
+        makePlayer({ id: PLAYER_A_ID, displayName: 'Alice', seatIndex: 0, sittingOut: true }),
+        makePlayer({ id: PLAYER_B_ID, displayName: 'Bot', seatIndex: 1 }),
+      ],
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    const alice = ui.players.find(p => p.name === 'Alice')!
+    expect(alice.isSittingOut).toBe(true)
+    expect(ui.tournament!.isPaused).toBe(true)
+  })
 })
