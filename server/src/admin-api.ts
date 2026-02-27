@@ -25,6 +25,9 @@ const CreateGameBody = z.object({
   maxPlayers: z.number().int().min(2).max(10).default(9),
   startingStack: z.number().int().min(1).default(1000),
   spectatorVisibility: z.enum(['showdown', 'delayed', 'immediate']).default('showdown'),
+  tournamentLengthHours: z.number().min(0.25).max(24).optional(),
+  roundLengthMinutes: z.number().int().min(1).max(120).optional(),
+  antesEnabled: z.boolean().default(false),
 });
 
 const SetSpectatorVisibilityBody = z.object({
@@ -64,14 +67,19 @@ export function registerAdminRoutes(
       return reply.status(400).send({ error: body.error.issues.map((i: { message: string }) => i.message).join('; ') });
     }
 
+    // For tournaments, force starting blinds to 25/50 and stack to 5000
+    const isTournament = body.data.gameType === 'tournament';
     const game = createGame({
       name: body.data.name,
       gameType: body.data.gameType,
-      smallBlind: body.data.smallBlind,
-      bigBlind: body.data.bigBlind,
+      smallBlind: isTournament ? 25 : body.data.smallBlind,
+      bigBlind: isTournament ? 50 : body.data.bigBlind,
       maxPlayers: body.data.maxPlayers,
-      startingStack: body.data.startingStack,
+      startingStack: isTournament ? 5000 : body.data.startingStack,
       spectatorVisibility: body.data.spectatorVisibility,
+      tournamentLengthHours: body.data.tournamentLengthHours,
+      roundLengthMinutes: body.data.roundLengthMinutes,
+      antesEnabled: body.data.antesEnabled,
     });
 
     // Activate in memory
@@ -92,6 +100,40 @@ export function registerAdminRoutes(
     }
 
     logger.info({ gameId: request.params.id }, 'Game force-started via admin API');
+    return reply.send({ ok: true });
+  });
+
+  // Pause a tournament game
+  app.post<{ Params: { id: string } }>('/api/games/:id/pause', async (request, reply) => {
+    const game = getGameById(request.params.id);
+    if (!game) return reply.status(404).send({ error: 'Game not found' });
+    if (game.game_type !== 'tournament') {
+      return reply.status(400).send({ error: 'Only tournament games can be paused' });
+    }
+
+    const ok = gameManager.pauseGame(request.params.id, sessionManager);
+    if (!ok) {
+      return reply.status(400).send({ error: 'Cannot pause game (not in progress or already paused)' });
+    }
+
+    logger.info({ gameId: request.params.id }, 'Tournament paused via admin API');
+    return reply.send({ ok: true });
+  });
+
+  // Resume a paused tournament game
+  app.post<{ Params: { id: string } }>('/api/games/:id/resume', async (request, reply) => {
+    const game = getGameById(request.params.id);
+    if (!game) return reply.status(404).send({ error: 'Game not found' });
+    if (game.game_type !== 'tournament') {
+      return reply.status(400).send({ error: 'Only tournament games can be resumed' });
+    }
+
+    const ok = gameManager.resumeGame(request.params.id, sessionManager);
+    if (!ok) {
+      return reply.status(400).send({ error: 'Cannot resume game (not paused)' });
+    }
+
+    logger.info({ gameId: request.params.id }, 'Tournament resumed via admin API');
     return reply.send({ ok: true });
   });
 

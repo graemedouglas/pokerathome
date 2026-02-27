@@ -7,7 +7,7 @@ import type {
 } from '@pokerathome/schema'
 import type {
   GameState, Player, Card, Suit, Rank, GamePhase,
-  AvailableActions, PlayerAction, WinnerInfo,
+  AvailableActions, PlayerAction, WinnerInfo, TournamentInfo,
 } from './types'
 
 const SUIT_MAP: Record<string, Suit> = {
@@ -98,6 +98,7 @@ export function adaptGameState(
       isHuman,
       seatIndex: sp.seatIndex,
       avatarId: sp.seatIndex,
+      isSittingOut: sp.sittingOut,
     }
   })
 
@@ -105,6 +106,30 @@ export function adaptGameState(
   players.sort((a, b) => a.seatIndex - b.seatIndex)
 
   const currentPlayerIndex = players.findIndex(p => p.isCurrent)
+
+  // Map tournament state if present
+  let tournament: TournamentInfo | undefined
+  if (server.tournament) {
+    const t = server.tournament
+    tournament = {
+      currentBlindLevel: t.currentBlindLevel,
+      blindSchedule: t.blindSchedule.map(l => ({
+        level: l.level,
+        smallBlind: l.smallBlind,
+        bigBlind: l.bigBlind,
+        ante: l.ante,
+        minChipDenom: l.minChipDenom,
+      })),
+      nextBlindChangeAt: t.nextBlindChangeAt,
+      roundLengthMs: t.roundLengthMs,
+      isPaused: t.isPaused,
+      minChipDenom: t.minChipDenom,
+      averageStack: t.averageStack,
+      playersRemaining: t.playersRemaining,
+      totalPlayers: t.totalPlayers,
+      startedAt: t.startedAt,
+    }
+  }
 
   return {
     phase,
@@ -118,6 +143,8 @@ export function adaptGameState(
     handNumber: server.handNumber,
     smallBlindAmount: server.smallBlindAmount,
     bigBlindAmount: server.bigBlindAmount,
+    gameType: (server.gameType ?? 'cash') as 'cash' | 'tournament',
+    tournament,
   }
 }
 

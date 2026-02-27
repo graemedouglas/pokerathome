@@ -65,6 +65,7 @@ export const PlayerState = z.object({
   folded: z.boolean(),
   holeCards: z.array(Card).length(2).nullable(),
   connected: z.boolean(),
+  sittingOut: z.boolean(),
 });
 export type PlayerState = z.infer<typeof PlayerState>;
 
@@ -73,6 +74,29 @@ export const PotBreakdown = z.object({
   eligiblePlayerIds: z.array(z.string().uuid()),
 });
 export type PotBreakdown = z.infer<typeof PotBreakdown>;
+
+export const BlindLevel = z.object({
+  level: z.number().int().min(1),
+  smallBlind: z.number().int().min(1),
+  bigBlind: z.number().int().min(1),
+  ante: z.number().int().min(0),
+  minChipDenom: z.number().int().min(1),
+});
+export type BlindLevel = z.infer<typeof BlindLevel>;
+
+export const TournamentState = z.object({
+  blindSchedule: z.array(BlindLevel),
+  currentBlindLevel: z.number().int().min(0),
+  nextBlindChangeAt: z.number().int().nullable(),
+  roundLengthMs: z.number().int().min(1),
+  isPaused: z.boolean(),
+  minChipDenom: z.number().int().min(1),
+  averageStack: z.number().int().min(0),
+  playersRemaining: z.number().int().min(0),
+  totalPlayers: z.number().int().min(0),
+  startedAt: z.number().int(),
+});
+export type TournamentState = z.infer<typeof TournamentState>;
 
 export const GameState = z.object({
   gameId: z.string().uuid(),
@@ -87,6 +111,7 @@ export const GameState = z.object({
   smallBlindAmount: z.number().int().min(1),
   bigBlindAmount: z.number().int().min(1),
   activePlayerId: z.string().uuid().nullable(),
+  tournament: TournamentState.optional(),
 });
 export type GameState = z.infer<typeof GameState>;
 
@@ -135,6 +160,10 @@ export const BlindsPostedEvent = z.object({
     playerId: z.string().uuid(),
     amount: z.number().int().min(1),
   }),
+  antes: z.array(z.object({
+    playerId: z.string().uuid(),
+    amount: z.number().int().min(1),
+  })).optional(),
 });
 export type BlindsPostedEvent = z.infer<typeof BlindsPostedEvent>;
 
@@ -224,6 +253,22 @@ export const PlayerLeftEvent = z.object({
 });
 export type PlayerLeftEvent = z.infer<typeof PlayerLeftEvent>;
 
+export const BlindLevelUpEvent = z.object({
+  type: z.literal('BLIND_LEVEL_UP'),
+  level: BlindLevel,
+});
+export type BlindLevelUpEvent = z.infer<typeof BlindLevelUpEvent>;
+
+export const TournamentPausedEvent = z.object({
+  type: z.literal('TOURNAMENT_PAUSED'),
+});
+export type TournamentPausedEvent = z.infer<typeof TournamentPausedEvent>;
+
+export const TournamentResumedEvent = z.object({
+  type: z.literal('TOURNAMENT_RESUMED'),
+});
+export type TournamentResumedEvent = z.infer<typeof TournamentResumedEvent>;
+
 export const Event = z.discriminatedUnion('type', [
   HandStartEvent,
   BlindsPostedEvent,
@@ -238,6 +283,9 @@ export const Event = z.discriminatedUnion('type', [
   PlayerRevealedEvent,
   PlayerJoinedEvent,
   PlayerLeftEvent,
+  BlindLevelUpEvent,
+  TournamentPausedEvent,
+  TournamentResumedEvent,
 ]);
 export type Event = z.infer<typeof Event>;
 
@@ -253,6 +301,9 @@ export const ReplayGameConfig = z.object({
   bigBlindAmount: z.number().int().min(1),
   maxPlayers: z.number().int().min(2),
   startingStack: z.number().int().min(1),
+  tournamentLengthHours: z.number().optional(),
+  roundLengthMinutes: z.number().int().optional(),
+  antesEnabled: z.boolean().optional(),
 });
 export type ReplayGameConfig = z.infer<typeof ReplayGameConfig>;
 
@@ -334,6 +385,11 @@ export const ChatSendPayload = z.object({
 });
 export type ChatSendPayload = z.infer<typeof ChatSendPayload>;
 
+export const SetSittingOutPayload = z.object({
+  sittingOut: z.boolean(),
+});
+export type SetSittingOutPayload = z.infer<typeof SetSittingOutPayload>;
+
 // -- Server -> Client payloads --
 
 export const GameStateUpdatePayload = z.object({
@@ -358,8 +414,12 @@ export const GameListItem = z.object({
   maxPlayers: z.number().int().min(2),
   smallBlindAmount: z.number().int().min(1),
   bigBlindAmount: z.number().int().min(1),
+  startingStack: z.number().int().min(1),
   status: GameStatus,
   isReplay: z.boolean().optional(),
+  tournamentLengthHours: z.number().optional(),
+  roundLengthMinutes: z.number().int().optional(),
+  antesEnabled: z.boolean().optional(),
 });
 export type GameListItem = z.infer<typeof GameListItem>;
 
@@ -378,6 +438,12 @@ export const TimeWarningPayload = z.object({
   remainingMs: z.number().int().min(0),
 });
 export type TimeWarningPayload = z.infer<typeof TimeWarningPayload>;
+
+export const BlindWarningPayload = z.object({
+  remainingMs: z.number().int().min(0),
+  nextLevel: BlindLevel,
+});
+export type BlindWarningPayload = z.infer<typeof BlindWarningPayload>;
 
 export const Standing = z.object({
   playerId: z.string().uuid(),
@@ -479,6 +545,11 @@ export const ReplayCardVisibilityMessage = z.object({
   payload: ReplayCardVisibilityPayload,
 });
 
+export const SetSittingOutMessage = z.object({
+  action: z.literal('setSittingOut'),
+  payload: SetSittingOutPayload,
+});
+
 /** Discriminated union of all client-to-server messages */
 export const ClientMessage = z.discriminatedUnion('action', [
   IdentifyMessage,
@@ -491,6 +562,7 @@ export const ClientMessage = z.discriminatedUnion('action', [
   LeaveGameMessage,
   ReplayControlMessage,
   ReplayCardVisibilityMessage,
+  SetSittingOutMessage,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -541,6 +613,11 @@ export const ReplayStateServerMessage = z.object({
   payload: ReplayStatePayload,
 });
 
+export const BlindWarningServerMessage = z.object({
+  action: z.literal('blindWarning'),
+  payload: BlindWarningPayload,
+});
+
 /** Union of all server-to-client messages */
 export const ServerMessage = z.discriminatedUnion('action', [
   IdentifiedServerMessage,
@@ -552,5 +629,6 @@ export const ServerMessage = z.discriminatedUnion('action', [
   ChatBroadcastServerMessage,
   ErrorServerMessage,
   ReplayStateServerMessage,
+  BlindWarningServerMessage,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

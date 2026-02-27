@@ -131,7 +131,11 @@ export class Lobby {
         name.textContent = game.name
 
         const info = el('div', 'lobby-game-info')
-        info.textContent = `${game.playerCount}/${game.maxPlayers} players \u2022 ${game.gameType} \u2022 $${game.smallBlindAmount}/$${game.bigBlindAmount}`
+        const typeLabel = game.gameType === 'tournament' ? 'Sit & Go' : 'Cash'
+        const tourneyExtra = game.gameType === 'tournament' && game.tournamentLengthHours
+          ? ` \u2022 ${game.tournamentLengthHours}h / ${game.roundLengthMinutes}m levels`
+          : ''
+        info.textContent = `${game.playerCount}/${game.maxPlayers} players \u2022 ${typeLabel} \u2022 $${game.smallBlindAmount}/$${game.bigBlindAmount}${tourneyExtra}`
 
         const status = el('span', `lobby-game-status lobby-status-${game.isReplay ? 'replay' : game.status}`)
         status.textContent = game.isReplay ? 'Replay' : (game.status === 'waiting' ? 'Waiting' : 'In Progress')
@@ -171,7 +175,8 @@ export class Lobby {
     title.textContent = game.name
 
     const info = el('p', 'lobby-subtitle')
-    info.textContent = `${game.playerCount}/${game.maxPlayers} players \u2022 $${game.smallBlindAmount}/$${game.bigBlindAmount}`
+    const typeLabel2 = game.gameType === 'tournament' ? 'Sit & Go' : 'Cash'
+    info.textContent = `${game.playerCount}/${game.maxPlayers} players \u2022 ${typeLabel2} \u2022 $${game.smallBlindAmount}/$${game.bigBlindAmount}`
 
     const prompt = el('p', 'lobby-join-prompt')
     prompt.textContent = 'How would you like to join?'

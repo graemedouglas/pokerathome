@@ -15,7 +15,8 @@
       "Bash(pnpm --filter e2e exec jest:*)",
       "Bash(NODE_OPTIONS=\"--max-old-space-size=8192\" pnpm --filter e2e test:unit:*)",
       "Bash(pnpm:*)",
-      "Bash(wc -l:*)"
+      "Bash(wc -l:*)",
+      "Bash(find:*)"
     ]
   },
   "autoUpdatesChannel": "latest"

@@ -10,6 +10,7 @@ import type {
   PlayerActionPayload,
   RevealCardsPayload,
   ChatSendPayload,
+  SetSittingOutPayload,
   ReplayControlPayload,
   ReplayCardVisibilityPayload,
 } from '@pokerathome/schema';
@@ -309,6 +310,27 @@ export function handleChat(
 
   // Record chat for replay
   gameManager.getRecorder(session.gameId)?.recordChat(chatPayload);
+}
+
+// ─── setSittingOut ──────────────────────────────────────────────────────────────
+
+export function handleSetSittingOut(
+  session: PlayerSession,
+  payload: SetSittingOutPayload,
+  sessions: SessionManager,
+  gameManager: GameManager,
+  logger: FastifyBaseLogger
+): void {
+  if (!session.gameId) {
+    sessions.send(session.playerId, {
+      action: 'error',
+      payload: { code: 'NOT_IN_GAME', message: 'You are not in a game.' },
+    });
+    return;
+  }
+
+  gameManager.handleSetSittingOut(session.gameId, session.playerId, payload.sittingOut, sessions);
+  logger.info({ playerId: session.playerId, gameId: session.gameId, sittingOut: payload.sittingOut }, 'Player toggled sit-out');
 }
 
 // ─── leaveGame ──────────────────────────────────────────────────────────────────

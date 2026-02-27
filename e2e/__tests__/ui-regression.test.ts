@@ -11,6 +11,8 @@ import type {
   GameState as ServerGameState,
   PlayerState as ServerPlayerState,
   ActionRequest as ServerActionRequest,
+  TournamentState as ServerTournamentState,
+  BlindLevel,
 } from '@pokerathome/schema'
 
 import {
@@ -40,6 +42,7 @@ function makePlayer(overrides: Partial<ServerPlayerState> = {}): ServerPlayerSta
     folded: false,
     holeCards: null,
     connected: true,
+    sittingOut: false,
     ...overrides,
   }
 }
@@ -523,5 +526,141 @@ describe('Spectator separation', () => {
     expect(seatIndices).toContain(0)
     expect(seatIndices).toContain(1)
     expect(seatIndices).not.toContain(6)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════
+// 7. Sitting-out state mapping
+// ═════════════════════════════════════════════════════════════════════════════════
+
+describe('sittingOut player state', () => {
+  test('player with sittingOut=true → isSittingOut true in UI', () => {
+    const server = makeServerState({
+      players: [
+        makePlayer({ id: PLAYER_A_ID, displayName: 'Alice', seatIndex: 0, sittingOut: true }),
+        makePlayer({ id: PLAYER_B_ID, displayName: 'Bot', seatIndex: 1 }),
+      ],
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    const alice = ui.players.find(p => p.name === 'Alice')!
+    expect(alice.isSittingOut).toBe(true)
+  })
+
+  test('player with sittingOut=false → isSittingOut false in UI', () => {
+    const server = makeServerState()
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    const alice = ui.players.find(p => p.name === 'Alice')!
+    expect(alice.isSittingOut).toBe(false)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════
+// 8. Tournament state mapping
+// ═════════════════════════════════════════════════════════════════════════════════
+
+function makeTournamentState(overrides: Partial<ServerTournamentState> = {}): ServerTournamentState {
+  return {
+    blindSchedule: [
+      { level: 1, smallBlind: 25, bigBlind: 50, ante: 0, minChipDenom: 25 },
+      { level: 2, smallBlind: 25, bigBlind: 75, ante: 0, minChipDenom: 25 },
+      { level: 3, smallBlind: 50, bigBlind: 100, ante: 0, minChipDenom: 25 },
+    ],
+    currentBlindLevel: 0,
+    nextBlindChangeAt: Date.now() + 600000,
+    roundLengthMs: 600000,
+    isPaused: false,
+    minChipDenom: 25,
+    averageStack: 5000,
+    playersRemaining: 4,
+    totalPlayers: 6,
+    startedAt: Date.now() - 300000,
+    ...overrides,
+  }
+}
+
+describe('tournament state mapping', () => {
+  test('cash game has no tournament field', () => {
+    const server = makeServerState({ gameType: 'cash' })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    expect(ui.gameType).toBe('cash')
+    expect(ui.tournament).toBeUndefined()
+  })
+
+  test('tournament game maps tournament state to UI', () => {
+    const tournamentState = makeTournamentState()
+    const server = makeServerState({
+      gameType: 'tournament',
+      tournament: tournamentState,
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    expect(ui.gameType).toBe('tournament')
+    expect(ui.tournament).toBeDefined()
+    expect(ui.tournament!.currentBlindLevel).toBe(0)
+    expect(ui.tournament!.isPaused).toBe(false)
+    expect(ui.tournament!.minChipDenom).toBe(25)
+    expect(ui.tournament!.playersRemaining).toBe(4)
+    expect(ui.tournament!.totalPlayers).toBe(6)
+    expect(ui.tournament!.averageStack).toBe(5000)
+  })
+
+  test('tournament blind schedule is fully mapped', () => {
+    const tournamentState = makeTournamentState()
+    const server = makeServerState({
+      gameType: 'tournament',
+      tournament: tournamentState,
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    expect(ui.tournament!.blindSchedule).toHaveLength(3)
+    expect(ui.tournament!.blindSchedule[0]).toEqual({
+      level: 1,
+      smallBlind: 25,
+      bigBlind: 50,
+      ante: 0,
+      minChipDenom: 25,
+    })
+    expect(ui.tournament!.blindSchedule[2].bigBlind).toBe(100)
+  })
+
+  test('paused tournament is reflected in UI state', () => {
+    const tournamentState = makeTournamentState({
+      isPaused: true,
+      nextBlindChangeAt: null,
+    })
+    const server = makeServerState({
+      gameType: 'tournament',
+      tournament: tournamentState,
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    expect(ui.tournament!.isPaused).toBe(true)
+    expect(ui.tournament!.nextBlindChangeAt).toBeNull()
+  })
+
+  test('roundLengthMs and startedAt are preserved', () => {
+    const now = Date.now()
+    const tournamentState = makeTournamentState({
+      roundLengthMs: 900000,
+      startedAt: now - 1000000,
+    })
+    const server = makeServerState({
+      gameType: 'tournament',
+      tournament: tournamentState,
+    })
+    const ctx = baseCtx()
+    const ui = adaptGameState(server, ctx)
+
+    expect(ui.tournament!.roundLengthMs).toBe(900000)
+    expect(ui.tournament!.startedAt).toBe(now - 1000000)
   })
 })

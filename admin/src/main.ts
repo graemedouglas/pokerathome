@@ -10,6 +10,9 @@ interface Game {
   max_players: number;
   starting_stack: number;
   spectator_visibility: string;
+  tournament_length_hours: number | null;
+  round_length_minutes: number | null;
+  antes_enabled: number;
   playerCount: number;
   created_at: string;
 }
@@ -32,14 +35,7 @@ async function fetchGames(): Promise<Game[]> {
   return res.json();
 }
 
-async function createGame(data: {
-  name: string;
-  smallBlind: number;
-  bigBlind: number;
-  startingStack: number;
-  maxPlayers: number;
-  spectatorVisibility: string;
-}) {
+async function createGame(data: Record<string, unknown>) {
   const res = await fetch(`${API}/games`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -50,6 +46,22 @@ async function createGame(data: {
     throw new Error(err.error || 'Failed to create game');
   }
   return res.json();
+}
+
+async function pauseGame(gameId: string) {
+  const res = await fetch(`${API}/games/${gameId}/pause`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to pause game');
+  }
+}
+
+async function resumeGame(gameId: string) {
+  const res = await fetch(`${API}/games/${gameId}/resume`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to resume game');
+  }
 }
 
 async function startGame(gameId: string) {
@@ -146,11 +158,20 @@ function renderGames(games: Game[]) {
   const specLabel = (v: string) =>
     v === 'showdown' ? 'Showdown' : v === 'delayed' ? 'Delayed' : 'Public';
 
+  const typeLabel = (g: Game) =>
+    g.game_type === 'tournament' ? 'SNG' : 'Cash';
+
+  const tourneyInfo = (g: Game) =>
+    g.game_type === 'tournament' && g.tournament_length_hours != null
+      ? `<div style="font-size:0.75rem;color:#888">${g.tournament_length_hours}h / ${g.round_length_minutes}m${g.antes_enabled ? ' +antes' : ''}</div>`
+      : '';
+
   container.innerHTML = `
     <table>
       <thead>
         <tr>
           <th>Name</th>
+          <th>Type</th>
           <th>Blinds</th>
           <th>Stack</th>
           <th>Players</th>
@@ -164,7 +185,8 @@ function renderGames(games: Game[]) {
           .map(
             (g) => `
           <tr>
-            <td>${esc(g.name)}</td>
+            <td>${esc(g.name)}${tourneyInfo(g)}</td>
+            <td>${typeLabel(g)}</td>
             <td>${g.small_blind}/${g.big_blind}</td>
             <td>${g.starting_stack}</td>
             <td>${g.playerCount ?? 0}/${g.max_players}</td>
@@ -191,6 +213,12 @@ function renderGames(games: Game[]) {
                      <button class="secondary" onclick="window.__addBot('${g.id}')">+ Bot</button>
                      <button class="secondary" onclick="window.__startGame('${g.id}')">Start</button>
                      <button class="danger" onclick="window.__deleteGame('${g.id}')">Delete</button>`
+                  : ''
+              }
+              ${
+                g.status === 'in_progress' && g.game_type === 'tournament'
+                  ? `<button class="secondary" onclick="window.__pauseGame('${g.id}')">Pause</button>
+                     <button class="secondary" onclick="window.__resumeGame('${g.id}')">Resume</button>`
                   : ''
               }
             </td>
@@ -257,20 +285,44 @@ async function refresh() {
   }
 }
 
+// Toggle cash/tournament form fields
+document.getElementById('gameType')!.addEventListener('change', (e) => {
+  const isTournament = (e.target as HTMLSelectElement).value === 'tournament';
+  document.getElementById('cash-fields')!.style.display = isTournament ? 'none' : '';
+  document.getElementById('tournament-fields')!.style.display = isTournament ? '' : 'none';
+});
+
 document.getElementById('create-form')!.addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target as HTMLFormElement;
-  const data = {
-    name: (form.elements.namedItem('name') as HTMLInputElement).value,
-    smallBlind: parseInt((form.elements.namedItem('smallBlind') as HTMLInputElement).value, 10),
-    bigBlind: parseInt((form.elements.namedItem('bigBlind') as HTMLInputElement).value, 10),
-    startingStack: parseInt(
-      (form.elements.namedItem('startingStack') as HTMLInputElement).value,
-      10
-    ),
-    maxPlayers: parseInt((form.elements.namedItem('maxPlayers') as HTMLInputElement).value, 10),
-    spectatorVisibility: (form.elements.namedItem('spectatorVisibility') as HTMLSelectElement).value,
-  };
+  const gameType = (form.elements.namedItem('gameType') as HTMLSelectElement).value;
+
+  let data: Record<string, unknown>;
+
+  if (gameType === 'tournament') {
+    data = {
+      name: (form.elements.namedItem('name') as HTMLInputElement).value,
+      gameType: 'tournament',
+      smallBlind: 25,
+      bigBlind: 50,
+      startingStack: 5000,
+      maxPlayers: parseInt((form.elements.namedItem('tournamentMaxPlayers') as HTMLInputElement).value, 10),
+      spectatorVisibility: (form.elements.namedItem('spectatorVisibility') as HTMLSelectElement).value,
+      tournamentLengthHours: parseFloat((form.elements.namedItem('tournamentLengthHours') as HTMLInputElement).value),
+      roundLengthMinutes: parseInt((form.elements.namedItem('roundLengthMinutes') as HTMLInputElement).value, 10),
+      antesEnabled: (form.elements.namedItem('antesEnabled') as HTMLInputElement).checked,
+    };
+  } else {
+    data = {
+      name: (form.elements.namedItem('name') as HTMLInputElement).value,
+      gameType: 'cash',
+      smallBlind: parseInt((form.elements.namedItem('smallBlind') as HTMLInputElement).value, 10),
+      bigBlind: parseInt((form.elements.namedItem('bigBlind') as HTMLInputElement).value, 10),
+      startingStack: parseInt((form.elements.namedItem('startingStack') as HTMLInputElement).value, 10),
+      maxPlayers: parseInt((form.elements.namedItem('maxPlayers') as HTMLInputElement).value, 10),
+      spectatorVisibility: (form.elements.namedItem('spectatorVisibility') as HTMLSelectElement).value,
+    };
+  }
 
   try {
     await createGame(data);
@@ -320,6 +372,26 @@ document.getElementById('create-form')!.addEventListener('submit', async (e) => 
   try {
     await deleteGame(id);
     toast('Game deleted');
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+};
+
+(window as any).__pauseGame = async (id: string) => {
+  try {
+    await pauseGame(id);
+    toast('Tournament paused');
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+};
+
+(window as any).__resumeGame = async (id: string) => {
+  try {
+    await resumeGame(id);
+    toast('Tournament resumed');
     refresh();
   } catch (err: any) {
     toast(err.message, true);

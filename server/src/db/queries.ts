@@ -20,6 +20,9 @@ export interface GameRow {
   max_players: number;
   starting_stack: number;
   spectator_visibility: string;
+  tournament_length_hours: number | null;
+  round_length_minutes: number | null;
+  antes_enabled: number;
   created_at: string;
 }
 
@@ -82,6 +85,9 @@ export interface CreateGameParams {
   maxPlayers?: number;
   startingStack?: number;
   spectatorVisibility?: string;
+  tournamentLengthHours?: number;
+  roundLengthMinutes?: number;
+  antesEnabled?: boolean;
 }
 
 export function createGame(params: CreateGameParams): GameRow {
@@ -93,9 +99,15 @@ export function createGame(params: CreateGameParams): GameRow {
   const spectatorVisibility = params.spectatorVisibility ?? 'showdown';
 
   db.prepare(
-    `INSERT INTO games (id, name, game_type, small_blind, big_blind, max_players, starting_stack, spectator_visibility)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, params.name, gameType, params.smallBlind, params.bigBlind, maxPlayers, startingStack, spectatorVisibility);
+    `INSERT INTO games (id, name, game_type, small_blind, big_blind, max_players, starting_stack, spectator_visibility, tournament_length_hours, round_length_minutes, antes_enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id, params.name, gameType, params.smallBlind, params.bigBlind,
+    maxPlayers, startingStack, spectatorVisibility,
+    params.tournamentLengthHours ?? null,
+    params.roundLengthMinutes ?? null,
+    params.antesEnabled ? 1 : 0
+  );
 
   return getGameById(id)!;
 }

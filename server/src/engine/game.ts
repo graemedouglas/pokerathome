@@ -12,6 +12,8 @@ import type {
   ActionRequest,
   GameStateUpdatePayload,
   Winner,
+  BlindLevel,
+  TournamentState,
 } from '@pokerathome/schema';
 import { createDeck, shuffle, deal } from './deck.js';
 import { evaluateShowdown } from './hand-evaluator.js';
@@ -36,6 +38,7 @@ export interface EnginePlayer {
   connected: boolean;
   isAllIn: boolean;
   isReady: boolean;
+  sittingOut: boolean;
 }
 
 export interface EngineState {
@@ -62,6 +65,13 @@ export interface EngineState {
   handInProgress: boolean;
   maxPlayers: number;
   startingStack: number;
+
+  // Tournament fields
+  blindSchedule: BlindLevel[];
+  currentBlindLevel: number;
+  antesEnabled: boolean;
+  tournamentStartedAt: number | null;
+  totalPlayers: number;
 }
 
 export interface Transition {
@@ -81,6 +91,8 @@ export interface GameConfig {
   bigBlindAmount: number;
   maxPlayers: number;
   startingStack: number;
+  blindSchedule?: BlindLevel[];
+  antesEnabled?: boolean;
 }
 
 export function createInitialState(config: GameConfig): EngineState {
@@ -106,6 +118,11 @@ export function createInitialState(config: GameConfig): EngineState {
     handInProgress: false,
     maxPlayers: config.maxPlayers,
     startingStack: config.startingStack,
+    blindSchedule: config.blindSchedule ?? [],
+    currentBlindLevel: 0,
+    antesEnabled: config.antesEnabled ?? false,
+    tournamentStartedAt: null,
+    totalPlayers: 0,
   };
 }
 
@@ -153,6 +170,7 @@ export function addPlayer(
     connected: true,
     isAllIn: false,
     isReady: role === 'spectator',
+    sittingOut: false,
   };
 
   const event: Event = {
@@ -195,6 +213,41 @@ export function setPlayerConnected(state: EngineState, playerId: string, connect
   };
 }
 
+export function setPlayerSittingOut(state: EngineState, playerId: string, sittingOut: boolean): EngineState {
+  return {
+    ...state,
+    players: state.players.map((p) => (p.id === playerId ? { ...p, sittingOut } : p)),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Tournament blind level management
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Advance to the next blind level. Returns a transition with the BLIND_LEVEL_UP event. */
+export function advanceBlindLevel(inputState: EngineState): Transition {
+  const nextIdx = inputState.currentBlindLevel + 1;
+  const schedule = inputState.blindSchedule;
+
+  // Clamp to last level (schedule is uncapped so this is a safety guard)
+  const levelIdx = Math.min(nextIdx, schedule.length - 1);
+  const level = schedule[levelIdx];
+
+  const state: EngineState = {
+    ...inputState,
+    currentBlindLevel: levelIdx,
+    smallBlindAmount: level.smallBlind,
+    bigBlindAmount: level.bigBlind,
+  };
+
+  const event: Event = {
+    type: 'BLIND_LEVEL_UP',
+    level,
+  };
+
+  return { state, event };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Hand lifecycle
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -204,17 +257,26 @@ export function startHand(inputState: EngineState, deckOverride?: string[]): Tra
   const transitions: Transition[] = [];
   let state = { ...inputState };
 
-  const activePlayers = state.players.filter((p) => p.role === 'player' && p.stack > 0);
+  const isTournament = state.gameType === 'tournament';
+
+  // In cash games, sitting-out players are excluded from the hand entirely.
+  // In tournaments, sitting-out players participate (pay blinds, get dealt) but auto-fold.
+  const activePlayers = state.players.filter((p) =>
+    p.role === 'player' && p.stack > 0 && (isTournament || !p.sittingOut)
+  );
   if (activePlayers.length < 2) {
     throw new Error('Not enough players to start a hand');
   }
 
-  // Advance dealer button
+  // Advance dealer button (skip sitting-out players in cash games)
   const prevDealer = state.dealerSeatIndex;
-  const nextDealer = findNextPlayer(state.players, prevDealer, (p) => p.role === 'player' && p.stack > 0);
+  const nextDealer = findNextPlayer(state.players, prevDealer, (p) =>
+    p.role === 'player' && p.stack > 0 && (isTournament || !p.sittingOut)
+  );
   if (!nextDealer) throw new Error('Cannot find next dealer');
 
   // Reset hand state
+  // In cash games, sitting-out players are folded (excluded from the hand)
   state = {
     ...state,
     handNumber: state.handNumber + 1,
@@ -234,7 +296,7 @@ export function startHand(inputState: EngineState, deckOverride?: string[]): Tra
       ...p,
       bet: 0,
       potShare: 0,
-      folded: p.role !== 'player' || p.stack <= 0,
+      folded: p.role !== 'player' || p.stack <= 0 || (!isTournament && p.sittingOut),
       holeCards: null,
       isAllIn: false,
     })),
@@ -249,8 +311,10 @@ export function startHand(inputState: EngineState, deckOverride?: string[]): Tra
   state.handEvents.push(handStartEvent);
   transitions.push({ state: cloneState(state), event: handStartEvent });
 
-  // Post blinds
-  state = postBlinds(state);
+  // Post antes (if applicable) then blinds
+  const anteInfo = postAntes(state);
+  state = anteInfo.state;
+  state = postBlinds(state, anteInfo.antes);
   const blindsEvent = state.handEvents[state.handEvents.length - 1];
   transitions.push({ state: cloneState(state), event: blindsEvent });
 
@@ -273,7 +337,38 @@ export function startHand(inputState: EngineState, deckOverride?: string[]): Tra
   return transitions;
 }
 
-function postBlinds(state: EngineState): EngineState {
+/** Post antes from all active players. Returns updated state and ante records. */
+function postAntes(state: EngineState): { state: EngineState; antes: Array<{ playerId: string; amount: number }> } {
+  const antes: Array<{ playerId: string; amount: number }> = [];
+
+  // Get ante amount from current blind level
+  const schedule = state.blindSchedule;
+  const levelIdx = state.currentBlindLevel;
+  const anteAmount = schedule.length > 0 && levelIdx < schedule.length
+    ? schedule[levelIdx].ante
+    : 0;
+
+  if (!state.antesEnabled || anteAmount <= 0) {
+    return { state, antes };
+  }
+
+  // Deduct ante from each non-folded player
+  for (const p of state.players) {
+    if (p.folded || p.role !== 'player') continue;
+    const actual = Math.min(anteAmount, p.stack);
+    if (actual <= 0) continue;
+    state = applyBet(state, p.id, actual);
+    antes.push({ playerId: p.id, amount: actual });
+    // Mark all-in if ante consumed entire stack
+    if (state.players.find((pl) => pl.id === p.id)!.stack === 0) {
+      state = markAllIn(state, p.id);
+    }
+  }
+
+  return { state, antes };
+}
+
+function postBlinds(state: EngineState, antes?: Array<{ playerId: string; amount: number }>): EngineState {
   const isHeadsUp = state.players.filter((p) => !p.folded).length === 2;
 
   let sbPlayer: EnginePlayer;
@@ -311,6 +406,7 @@ function postBlinds(state: EngineState): EngineState {
     type: 'BLINDS_POSTED',
     smallBlind: { playerId: sbPlayer.id, amount: sbAmount },
     bigBlind: { playerId: bbPlayer.id, amount: bbAmount },
+    ...(antes && antes.length > 0 ? { antes } : {}),
   };
   state.handEvents.push(blindsEvent);
 
@@ -765,10 +861,47 @@ function determineVisibleCards(
 }
 
 /**
+ * Build the TournamentState object from engine state.
+ * Note: nextBlindChangeAt and isPaused are managed by GameManager and injected
+ * via tournamentOverrides when calling toClientGameState.
+ */
+function buildTournamentState(state: EngineState, overrides?: TournamentOverrides): TournamentState {
+  const playersInGame = state.players.filter((p) => p.role === 'player');
+  const playersRemaining = playersInGame.filter((p) => p.stack > 0).length;
+  const totalStacks = playersInGame.reduce((sum, p) => sum + p.stack, 0);
+  const averageStack = playersRemaining > 0 ? Math.round(totalStacks / playersRemaining) : 0;
+  const currentLevel = state.blindSchedule[state.currentBlindLevel];
+
+  return {
+    blindSchedule: state.blindSchedule,
+    currentBlindLevel: state.currentBlindLevel,
+    nextBlindChangeAt: overrides?.nextBlindChangeAt ?? null,
+    roundLengthMs: overrides?.roundLengthMs ?? 0,
+    isPaused: overrides?.isPaused ?? false,
+    minChipDenom: currentLevel?.minChipDenom ?? 25,
+    averageStack,
+    playersRemaining,
+    totalPlayers: state.totalPlayers,
+    startedAt: state.tournamentStartedAt ?? 0,
+  };
+}
+
+export interface TournamentOverrides {
+  nextBlindChangeAt: number | null;
+  roundLengthMs: number;
+  isPaused: boolean;
+}
+
+/**
  * Convert engine state to a client-facing GameState for a specific viewer.
  * Hides opponent hole cards and strips engine-internal fields.
  */
-export function toClientGameState(state: EngineState, viewerPlayerId: string, spectatorVisibility?: string): GameState {
+export function toClientGameState(
+  state: EngineState,
+  viewerPlayerId: string,
+  spectatorVisibility?: string,
+  tournamentOverrides?: TournamentOverrides
+): GameState {
   const viewer = state.players.find((p) => p.id === viewerPlayerId);
   const isSpectator = viewer?.role === 'spectator';
 
@@ -791,11 +924,15 @@ export function toClientGameState(state: EngineState, viewerPlayerId: string, sp
       folded: p.folded,
       holeCards: determineVisibleCards(p, viewerPlayerId, isSpectator, state, spectatorVisibility),
       connected: p.connected,
+      sittingOut: p.sittingOut,
     })),
     dealerSeatIndex: state.dealerSeatIndex,
     smallBlindAmount: state.smallBlindAmount,
     bigBlindAmount: state.bigBlindAmount,
     activePlayerId: state.activePlayerId,
+    ...(state.gameType === 'tournament' && state.blindSchedule.length > 0
+      ? { tournament: buildTournamentState(state, tournamentOverrides) }
+      : {}),
   };
 }
 
@@ -805,9 +942,10 @@ export function buildGameStatePayload(
   event: Event,
   viewerPlayerId: string,
   timeToActMs?: number,
-  spectatorVisibility?: string
+  spectatorVisibility?: string,
+  tournamentOverrides?: TournamentOverrides
 ): GameStateUpdatePayload {
-  const gameState = toClientGameState(state, viewerPlayerId, spectatorVisibility);
+  const gameState = toClientGameState(state, viewerPlayerId, spectatorVisibility, tournamentOverrides);
 
   let actionRequest: ActionRequest | undefined;
   if (state.activePlayerId === viewerPlayerId && timeToActMs) {
@@ -844,5 +982,6 @@ export function cloneState(state: EngineState): EngineState {
     deck: [...state.deck],
     actedThisRound: [...state.actedThisRound],
     handEvents: [...state.handEvents],
+    blindSchedule: [...state.blindSchedule],
   };
 }

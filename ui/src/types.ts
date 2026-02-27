@@ -35,6 +35,7 @@ export interface Player {
   isHuman: boolean
   seatIndex: number
   avatarId: number
+  isSittingOut: boolean
   botStyle?: BotStyle
 }
 
@@ -50,6 +51,27 @@ export interface AvailableActions {
   raiseType: 'BET' | 'RAISE' | null
 }
 
+export interface TournamentInfo {
+  currentBlindLevel: number
+  blindSchedule: BlindLevelInfo[]
+  nextBlindChangeAt: number | null
+  roundLengthMs: number
+  isPaused: boolean
+  minChipDenom: number
+  averageStack: number
+  playersRemaining: number
+  totalPlayers: number
+  startedAt: number
+}
+
+export interface BlindLevelInfo {
+  level: number
+  smallBlind: number
+  bigBlind: number
+  ante: number
+  minChipDenom: number
+}
+
 export interface GameState {
   phase: GamePhase
   players: Player[]
@@ -62,6 +84,8 @@ export interface GameState {
   handNumber: number
   smallBlindAmount: number
   bigBlindAmount: number
+  gameType: 'cash' | 'tournament'
+  tournament?: TournamentInfo
 }
 
 export interface WinnerInfo {

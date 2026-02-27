@@ -67,6 +67,9 @@ export function createRouter(
         case 'chat':
           handlers.handleChat(session!, message.payload, sessionManager, gameManager, logger);
           break;
+        case 'setSittingOut':
+          handlers.handleSetSittingOut(session!, message.payload, sessionManager, gameManager, logger);
+          break;
         case 'leaveGame':
           handlers.handleLeaveGame(session!, sessionManager, gameManager, logger, replayGameManager);
           break;

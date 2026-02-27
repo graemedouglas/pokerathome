@@ -7,7 +7,7 @@
  */
 
 import type { FastifyBaseLogger } from 'fastify';
-import type { Event, GameListItem, GameState, GameStateUpdatePayload } from '@pokerathome/schema';
+import type { Event, GameListItem, GameState, GameStateUpdatePayload, BlindLevel } from '@pokerathome/schema';
 import type { SessionManager } from './ws/session.js';
 import {
   createInitialState,
@@ -15,16 +15,20 @@ import {
   removePlayer as engineRemovePlayer,
   setPlayerReady,
   setPlayerConnected as engineSetConnected,
+  setPlayerSittingOut as engineSetSittingOut,
   startHand,
   processAction,
+  advanceBlindLevel,
   toClientGameState,
   buildGameStatePayload,
   cloneState,
   type EngineState,
   type Transition,
   type GameConfig,
+  type TournamentOverrides,
 } from './engine/game.js';
 import { validateAction } from './engine/action-validator.js';
+import { generateBlindSchedule, STARTING_STACK } from './engine/blind-schedule.js';
 import {
   getGameById,
   listActiveGames,
@@ -43,6 +47,12 @@ import { config } from './config.js';
 import { ReplayRecorder } from './replay/recorder.js';
 import { saveReplayFile } from './replay/storage.js';
 
+interface TournamentConfig {
+  tournamentLengthHours: number;
+  roundLengthMinutes: number;
+  antesEnabled: boolean;
+}
+
 interface ActiveGame {
   state: EngineState;
   actionTimer: ReturnType<typeof setTimeout> | null;
@@ -51,6 +61,16 @@ interface ActiveGame {
   previousHandState: EngineState | null; // Track previous hand for delayed spectator view
   spectatorVisibility: string; // Per-game spectator card visibility mode
   recorder: ReplayRecorder | null; // Replay recording
+  // Tournament-specific fields
+  blindTimer: ReturnType<typeof setTimeout> | null;
+  blindWarningTimers: ReturnType<typeof setTimeout>[];
+  isPaused: boolean;
+  pausedBlindRemainingMs: number | null;
+  blindTimerStartedAt: number | null; // When the current blind timer was started
+  blindTimerDurationMs: number | null; // Total duration of current blind timer
+  pendingBlindIncrease: boolean;
+  tournamentStartedAt: number | null;
+  tournamentConfig: TournamentConfig | null;
 }
 
 interface ActionResult {
@@ -98,7 +118,7 @@ export class GameManager {
             this.logger.error({ err, gameId: row.id, playerId: gp.player_id }, 'Failed to restore player');
           }
         }
-        this.activeGames.set(row.id, { state: currentState, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null, spectatorVisibility: row.spectator_visibility ?? 'showdown', recorder: new ReplayRecorder(this.createGameConfig(row)) });
+        this.activeGames.set(row.id, this.createActiveGame(currentState, row));
         this.logger.info({ gameId: row.id, playerCount: players.length }, 'Loaded waiting game');
       }
     }
@@ -120,6 +140,57 @@ export class GameManager {
     return createInitialState(this.createGameConfig(row));
   }
 
+  private createActiveGame(state: EngineState, row: GameRow): ActiveGame {
+    const tournamentConfig: TournamentConfig | null =
+      row.game_type === 'tournament' && row.tournament_length_hours != null && row.round_length_minutes != null
+        ? {
+            tournamentLengthHours: row.tournament_length_hours,
+            roundLengthMinutes: row.round_length_minutes,
+            antesEnabled: row.antes_enabled === 1,
+          }
+        : null;
+
+    return {
+      state,
+      actionTimer: null,
+      warningTimers: [],
+      riggedDeck: null,
+      previousHandState: null,
+      spectatorVisibility: row.spectator_visibility ?? 'showdown',
+      recorder: new ReplayRecorder(this.createGameConfig(row)),
+      blindTimer: null,
+      blindWarningTimers: [],
+      isPaused: false,
+      pausedBlindRemainingMs: null,
+      blindTimerStartedAt: null,
+      blindTimerDurationMs: null,
+      pendingBlindIncrease: false,
+      tournamentStartedAt: null,
+      tournamentConfig,
+    };
+  }
+
+  /** Build TournamentOverrides for client state projection from an active game. */
+  private getTournamentOverrides(active: ActiveGame): TournamentOverrides | undefined {
+    if (active.state.gameType !== 'tournament' || !active.tournamentConfig) return undefined;
+    const roundLengthMs = active.tournamentConfig.roundLengthMinutes * 60_000;
+
+    let nextBlindChangeAt: number | null;
+    if (active.isPaused) {
+      nextBlindChangeAt = null;
+    } else if (active.blindTimerStartedAt != null && active.blindTimerDurationMs != null) {
+      nextBlindChangeAt = active.blindTimerStartedAt + active.blindTimerDurationMs;
+    } else {
+      nextBlindChangeAt = null;
+    }
+
+    return {
+      nextBlindChangeAt,
+      roundLengthMs,
+      isPaused: active.isPaused,
+    };
+  }
+
   /** Register a game from the DB into the active games map. */
   activateGame(gameId: string): void {
     const row = getGameById(gameId);
@@ -127,7 +198,7 @@ export class GameManager {
     if (this.activeGames.has(gameId)) return;
 
     const state = this.createEngineStateFromRow(row);
-    this.activeGames.set(gameId, { state, actionTimer: null, warningTimers: [], riggedDeck: null, previousHandState: null, spectatorVisibility: row.spectator_visibility ?? 'showdown', recorder: new ReplayRecorder(this.createGameConfig(row)) });
+    this.activeGames.set(gameId, this.createActiveGame(state, row));
     this.logger.info({ gameId }, 'Game activated');
   }
 
@@ -150,7 +221,11 @@ export class GameManager {
       maxPlayers: row.max_players,
       smallBlindAmount: row.small_blind,
       bigBlindAmount: row.big_blind,
+      startingStack: row.starting_stack,
       status: row.status as 'waiting' | 'in_progress',
+      tournamentLengthHours: row.tournament_length_hours ?? undefined,
+      roundLengthMinutes: row.round_length_minutes ?? undefined,
+      antesEnabled: row.antes_enabled === 1 ? true : undefined,
     }));
   }
 
@@ -159,6 +234,11 @@ export class GameManager {
   joinGame(gameId: string, playerId: string, displayName: string, role: 'player' | 'spectator' = 'player'): JoinResult {
     const row = getGameById(gameId);
     if (!row) return { ok: false, errorCode: 'GAME_NOT_FOUND', errorMessage: 'Game not found' };
+
+    // Tournaments in progress don't allow late registration — force spectator
+    if (row.game_type === 'tournament' && row.status === 'in_progress' && role === 'player') {
+      role = 'spectator';
+    }
 
     // Only enforce capacity for players, not spectators
     if (role !== 'spectator') {
@@ -191,7 +271,8 @@ export class GameManager {
       const clientState = toClientGameState(
         active.state,
         playerId,
-        role === 'spectator' ? active.spectatorVisibility : undefined
+        role === 'spectator' ? active.spectatorVisibility : undefined,
+        this.getTournamentOverrides(active)
       );
       const handEvents = active.state.handInProgress ? [...active.state.handEvents] : undefined;
       this.logger.debug(
@@ -221,9 +302,10 @@ export class GameManager {
     removeGamePlayer(gameId, playerId);
 
     // Broadcast PLAYER_LEFT
+    const overrides = this.getTournamentOverrides(active);
     sessions.broadcastPersonalized(gameId, (viewerId) => ({
       action: 'gameState',
-      payload: buildGameStatePayload(active.state, result.event, viewerId, undefined, active.spectatorVisibility),
+      payload: buildGameStatePayload(active.state, result.event, viewerId, undefined, active.spectatorVisibility, overrides),
     }));
 
     // If game is in progress and not enough players, end it
@@ -271,8 +353,37 @@ export class GameManager {
       active.state = setPlayerReady(active.state, p.id);
     }
 
+    // For tournaments: generate blind schedule and set up tournament state
+    if (active.state.gameType === 'tournament' && active.tournamentConfig) {
+      const tc = active.tournamentConfig;
+      const schedule = generateBlindSchedule({
+        numPlayers: players.length,
+        tournamentLengthHours: tc.tournamentLengthHours,
+        roundLengthMinutes: tc.roundLengthMinutes,
+        antesEnabled: tc.antesEnabled,
+      });
+
+      active.state = {
+        ...active.state,
+        blindSchedule: schedule,
+        currentBlindLevel: 0,
+        smallBlindAmount: schedule[0].smallBlind,
+        bigBlindAmount: schedule[0].bigBlind,
+        antesEnabled: tc.antesEnabled,
+        tournamentStartedAt: Date.now(),
+        totalPlayers: players.length,
+      };
+      active.tournamentStartedAt = Date.now();
+    }
+
     updateGameStatus(gameId, 'in_progress');
     this.startNextHand(gameId, sessions);
+
+    // Start blind timer after the first hand begins (for tournaments)
+    if (active.state.gameType === 'tournament' && active.tournamentConfig) {
+      this.startBlindTimer(gameId, sessions);
+    }
+
     return true;
   }
 
@@ -282,13 +393,39 @@ export class GameManager {
     const active = this.activeGames.get(gameId);
     if (!active) return;
 
+    // If tournament is paused, don't start the next hand
+    if (active.isPaused) return;
+
+    const isTournament = active.state.gameType === 'tournament';
+
     const playersWithChips = active.state.players.filter(
       (p) => p.role === 'player' && p.stack > 0
     );
 
+    // Tournament end: only 1 player has chips
     if (playersWithChips.length < 2) {
       this.endGame(gameId, 'completed', sessions);
       return;
+    }
+
+    // Apply pending blind increase (timer expired between hands)
+    if (isTournament && active.pendingBlindIncrease) {
+      active.pendingBlindIncrease = false;
+      const transition = advanceBlindLevel(active.state);
+      active.state = transition.state;
+
+      // Record and broadcast the BLIND_LEVEL_UP event
+      active.recorder?.recordEvent(transition.event, active.state);
+      sessions.broadcastPersonalized(gameId, (viewerId) => ({
+        action: 'gameState',
+        payload: buildGameStatePayload(
+          active.state, transition.event, viewerId, undefined,
+          active.spectatorVisibility, this.getTournamentOverrides(active)
+        ),
+      }));
+
+      // Restart blind timer for the next level
+      this.startBlindTimer(gameId, sessions);
     }
 
     try {
@@ -296,9 +433,31 @@ export class GameManager {
       active.riggedDeck = null;
       const transitions = startHand(active.state, deckOverride);
       this.applyTransitions(gameId, transitions, sessions);
+
+      // For tournaments: auto-fold sitting-out players
+      if (isTournament) {
+        this.autoFoldSittingOutPlayers(gameId, sessions);
+      }
     } catch (err) {
       this.logger.error({ err, gameId }, 'Failed to start hand');
     }
+  }
+
+  /** Auto-fold sitting-out players in tournaments when it's their turn. */
+  private autoFoldSittingOutPlayers(gameId: string, sessions: SessionManager): void {
+    const active = this.activeGames.get(gameId);
+    if (!active || !active.state.handInProgress) return;
+
+    const activePlayer = active.state.players.find(p => p.id === active.state.activePlayerId);
+    if (!activePlayer || !activePlayer.sittingOut) return;
+
+    // Active player is sitting out — auto-fold immediately
+    this.clearTimers(active);
+    this.logger.info({ gameId, playerId: activePlayer.id }, 'Auto-folding sitting-out player');
+    const transitions = processAction(active.state, activePlayer.id, 'FOLD');
+    this.applyTransitions(gameId, transitions, sessions);
+    // applyTransitions will start the next action timer, which will trigger
+    // another auto-fold if the next active player is also sitting out
   }
 
   // ─── Action handling ────────────────────────────────────────────────────────
@@ -383,7 +542,7 @@ export class GameManager {
 
     sessions.broadcastPersonalized(gameId, (viewerId) => ({
       action: 'gameState',
-      payload: buildGameStatePayload(active.state, event, viewerId, undefined, active.spectatorVisibility),
+      payload: buildGameStatePayload(active.state, event, viewerId, undefined, active.spectatorVisibility, this.getTournamentOverrides(active)),
     }));
   }
 
@@ -432,7 +591,8 @@ export class GameManager {
       reconnectEvent,
       playerId,
       active.state.activePlayerId === playerId ? config.ACTION_TIMEOUT_MS : undefined,
-      active.spectatorVisibility
+      active.spectatorVisibility,
+      this.getTournamentOverrides(active)
     );
   }
 
@@ -512,7 +672,8 @@ export class GameManager {
             transition.event,
             viewerId,
             config.ACTION_TIMEOUT_MS,
-            active.spectatorVisibility
+            active.spectatorVisibility,
+            this.getTournamentOverrides(active)
           ),
         };
       });
@@ -523,6 +684,13 @@ export class GameManager {
       // Hand ended — save history and snapshot
       this.onHandEnd(gameId, sessions);
     } else if (active.state.activePlayerId) {
+      // Check if active player is sitting out (tournament auto-fold)
+      const activePlayer = active.state.players.find(p => p.id === active.state.activePlayerId);
+      if (activePlayer?.sittingOut && active.state.gameType === 'tournament') {
+        // Schedule auto-fold on next tick to avoid deep recursion
+        setTimeout(() => this.autoFoldSittingOutPlayers(gameId, sessions), 0);
+        return;
+      }
       // Start action timer for the active player
       this.startActionTimer(gameId, active.state.activePlayerId, sessions);
     }
@@ -624,6 +792,9 @@ export class GameManager {
 
     this.logger.info({ gameId, playerId, defaultAction: defaultType }, 'Player timed out');
 
+    // Set player to sitting out after timeout
+    active.state = engineSetSittingOut(active.state, playerId, true);
+
     // Emit PLAYER_TIMEOUT event
     const timeoutEvent: Event = {
       type: 'PLAYER_TIMEOUT',
@@ -632,9 +803,10 @@ export class GameManager {
     };
 
     // Broadcast the timeout event
+    const overrides = this.getTournamentOverrides(active);
     sessions.broadcastPersonalized(gameId, (viewerId) => ({
       action: 'gameState',
-      payload: buildGameStatePayload(active.state, timeoutEvent, viewerId, undefined, active.spectatorVisibility),
+      payload: buildGameStatePayload(active.state, timeoutEvent, viewerId, undefined, active.spectatorVisibility, overrides),
     }));
 
     // Then process the default action
@@ -653,6 +825,182 @@ export class GameManager {
     active.warningTimers = [];
   }
 
+  private clearBlindTimers(active: ActiveGame): void {
+    if (active.blindTimer) {
+      clearTimeout(active.blindTimer);
+      active.blindTimer = null;
+    }
+    for (const timer of active.blindWarningTimers) {
+      clearTimeout(timer);
+    }
+    active.blindWarningTimers = [];
+    active.blindTimerStartedAt = null;
+    active.blindTimerDurationMs = null;
+  }
+
+  // ─── Blind timer management (tournaments) ──────────────────────────────────
+
+  private startBlindTimer(gameId: string, sessions: SessionManager, durationMs?: number): void {
+    const active = this.activeGames.get(gameId);
+    if (!active || !active.tournamentConfig) return;
+
+    this.clearBlindTimers(active);
+
+    const roundMs = durationMs ?? active.tournamentConfig.roundLengthMinutes * 60_000;
+    active.blindTimerStartedAt = Date.now();
+    active.blindTimerDurationMs = roundMs;
+
+    // Compute next blind level for warnings
+    const nextIdx = Math.min(active.state.currentBlindLevel + 1, active.state.blindSchedule.length - 1);
+    const nextLevel = active.state.blindSchedule[nextIdx];
+
+    // Schedule blind warnings at 60s, 30s, and 10s before change
+    const warningOffsets = [60_000, 30_000, 10_000];
+    for (const offset of warningOffsets) {
+      const delay = roundMs - offset;
+      if (delay > 0) {
+        const timer = setTimeout(() => {
+          sessions.broadcast(gameId, {
+            action: 'blindWarning' as const,
+            payload: { remainingMs: offset, nextLevel },
+          });
+        }, delay);
+        active.blindWarningTimers.push(timer);
+      }
+    }
+
+    // Schedule the actual blind increase
+    active.blindTimer = setTimeout(() => {
+      const a = this.activeGames.get(gameId);
+      if (!a) return;
+
+      // If a hand is in progress, defer until next hand start
+      if (a.state.handInProgress) {
+        a.pendingBlindIncrease = true;
+        this.logger.info({ gameId, nextLevel: nextIdx + 1 }, 'Blind increase pending (hand in progress)');
+      } else {
+        // Apply immediately between hands
+        a.pendingBlindIncrease = false;
+        const transition = advanceBlindLevel(a.state);
+        a.state = transition.state;
+
+        a.recorder?.recordEvent(transition.event, a.state);
+        const overrides = this.getTournamentOverrides(a);
+        sessions.broadcastPersonalized(gameId, (viewerId) => ({
+          action: 'gameState',
+          payload: buildGameStatePayload(
+            a.state, transition.event, viewerId, undefined,
+            a.spectatorVisibility, overrides
+          ),
+        }));
+
+        // Start timer for next level
+        this.startBlindTimer(gameId, sessions);
+      }
+    }, roundMs);
+
+    this.logger.info({ gameId, roundMs, currentLevel: active.state.currentBlindLevel + 1 }, 'Blind timer started');
+  }
+
+  /** Pause the tournament (admin action). */
+  pauseGame(gameId: string, sessions: SessionManager): boolean {
+    const active = this.activeGames.get(gameId);
+    if (!active || active.state.gameType !== 'tournament') return false;
+    if (active.isPaused) return false;
+
+    active.isPaused = true;
+
+    // Pause blind timer — store remaining time
+    if (active.blindTimerStartedAt != null && active.blindTimerDurationMs != null) {
+      const elapsed = Date.now() - active.blindTimerStartedAt;
+      active.pausedBlindRemainingMs = Math.max(0, active.blindTimerDurationMs - elapsed);
+    }
+    this.clearBlindTimers(active);
+
+    // Broadcast TOURNAMENT_PAUSED event
+    const event: Event = { type: 'TOURNAMENT_PAUSED' };
+    active.recorder?.recordEvent(event, active.state);
+    const overrides = this.getTournamentOverrides(active);
+    sessions.broadcastPersonalized(gameId, (viewerId) => ({
+      action: 'gameState',
+      payload: buildGameStatePayload(active.state, event, viewerId, undefined, active.spectatorVisibility, overrides),
+    }));
+
+    this.logger.info({ gameId, remainingMs: active.pausedBlindRemainingMs }, 'Tournament paused');
+    return true;
+  }
+
+  /** Resume the tournament (admin action). */
+  resumeGame(gameId: string, sessions: SessionManager): boolean {
+    const active = this.activeGames.get(gameId);
+    if (!active || active.state.gameType !== 'tournament') return false;
+    if (!active.isPaused) return false;
+
+    active.isPaused = false;
+
+    // Resume blind timer with remaining time
+    const remainingMs = active.pausedBlindRemainingMs;
+    active.pausedBlindRemainingMs = null;
+    if (remainingMs != null && remainingMs > 0) {
+      this.startBlindTimer(gameId, sessions, remainingMs);
+    } else {
+      this.startBlindTimer(gameId, sessions);
+    }
+
+    // Broadcast TOURNAMENT_RESUMED event
+    const event: Event = { type: 'TOURNAMENT_RESUMED' };
+    active.recorder?.recordEvent(event, active.state);
+    const overrides = this.getTournamentOverrides(active);
+    sessions.broadcastPersonalized(gameId, (viewerId) => ({
+      action: 'gameState',
+      payload: buildGameStatePayload(active.state, event, viewerId, undefined, active.spectatorVisibility, overrides),
+    }));
+
+    // If no hand in progress, start the next hand
+    if (!active.state.handInProgress) {
+      this.startNextHand(gameId, sessions);
+    }
+
+    this.logger.info({ gameId }, 'Tournament resumed');
+    return true;
+  }
+
+  // ─── Sit-out handling ───────────────────────────────────────────────────────
+
+  handleSetSittingOut(gameId: string, playerId: string, sittingOut: boolean, sessions: SessionManager): void {
+    const active = this.activeGames.get(gameId);
+    if (!active) return;
+
+    const player = active.state.players.find(p => p.id === playerId);
+    if (!player || player.role !== 'player') return;
+
+    active.state = engineSetSittingOut(active.state, playerId, sittingOut);
+
+    // Broadcast updated state
+    const overrides = this.getTournamentOverrides(active);
+    sessions.broadcastPersonalized(gameId, (viewerId) => ({
+      action: 'gameState',
+      payload: buildGameStatePayload(
+        active.state,
+        { type: 'PLAYER_JOINED', playerId, displayName: player.displayName, seatIndex: player.seatIndex } as Event,
+        viewerId,
+        active.state.activePlayerId === viewerId ? config.ACTION_TIMEOUT_MS : undefined,
+        active.spectatorVisibility,
+        overrides
+      ),
+    }));
+
+    this.logger.info({ gameId, playerId, sittingOut }, 'Player sit-out toggled');
+
+    // If the player just came back and they're the active player in a tournament,
+    // they should get their normal action timer (already handled by broadcast above).
+    // If they sat out and they're the active player, auto-fold them.
+    if (sittingOut && active.state.activePlayerId === playerId && active.state.gameType === 'tournament') {
+      this.clearTimers(active);
+      setTimeout(() => this.autoFoldSittingOutPlayers(gameId, sessions), 0);
+    }
+  }
+
   // ─── Game end ──────────────────────────────────────────────────────────────
 
   private endGame(
@@ -664,6 +1012,7 @@ export class GameManager {
     if (!active) return;
 
     this.clearTimers(active);
+    this.clearBlindTimers(active);
 
     // Build standings
     const standings = [...active.state.players]
@@ -776,7 +1125,7 @@ export class GameManager {
   ): GameStateUpdatePayload | undefined {
     const active = this.activeGames.get(gameId);
     if (!active) return undefined;
-    return buildGameStatePayload(active.state, event, viewerPlayerId, undefined, active.spectatorVisibility);
+    return buildGameStatePayload(active.state, event, viewerPlayerId, undefined, active.spectatorVisibility, this.getTournamentOverrides(active));
   }
 
   isGameActive(gameId: string): boolean {

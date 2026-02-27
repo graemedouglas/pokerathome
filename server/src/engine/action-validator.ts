@@ -4,6 +4,7 @@
 
 import type { ActionOption } from '@pokerathome/schema';
 import type { EnginePlayer, EngineState } from './game.js';
+import { getMinChipDenom } from './blind-schedule.js';
 
 /**
  * Returns the list of ActionOptions available to the given player.
@@ -16,6 +17,11 @@ export function getAvailableActions(state: EngineState, playerId: string): Actio
   const actions: ActionOption[] = [];
   const callAmount = state.currentBet - player.bet;
   const canCheck = callAmount === 0;
+
+  // For tournaments, min bet/raise amounts must align to the chip denomination
+  const chipDenom = state.gameType === 'tournament'
+    ? getCurrentMinChipDenom(state)
+    : 1;
 
   // FOLD is always available (even when checking is free -- dumb but legal)
   actions.push({ type: 'FOLD' });
@@ -30,8 +36,9 @@ export function getAvailableActions(state: EngineState, playerId: string): Actio
   // BET: only when no bet has been made this round (currentBet === 0)
   // Pre-flop the blinds set currentBet, so BET is not available pre-flop
   if (state.currentBet === 0 && player.stack > 0) {
-    const min = Math.min(state.bigBlindAmount, player.stack);
-    const max = player.stack;
+    let min = Math.min(state.bigBlindAmount, player.stack);
+    min = roundUpToChipDenom(min, chipDenom);
+    const max = roundDownToChipDenom(player.stack, chipDenom) || player.stack;
     if (min <= max) {
       actions.push({ type: 'BET', min, max });
     }
@@ -39,8 +46,9 @@ export function getAvailableActions(state: EngineState, playerId: string): Actio
 
   // RAISE: when there's a bet to raise above
   if (state.currentBet > 0 && player.stack > callAmount) {
-    const minRaiseTotal = callAmount + state.lastRaiseSize;
-    const maxRaiseTotal = player.stack;
+    let minRaiseTotal = callAmount + state.lastRaiseSize;
+    minRaiseTotal = roundUpToChipDenom(minRaiseTotal, chipDenom);
+    const maxRaiseTotal = roundDownToChipDenom(player.stack, chipDenom) || player.stack;
 
     if (minRaiseTotal <= maxRaiseTotal) {
       actions.push({ type: 'RAISE', min: minRaiseTotal, max: maxRaiseTotal });
@@ -53,6 +61,24 @@ export function getAvailableActions(state: EngineState, playerId: string): Actio
   }
 
   return actions;
+}
+
+/** Get current minimum chip denomination from the blind schedule. */
+function getCurrentMinChipDenom(state: EngineState): number {
+  if (state.blindSchedule.length > 0 && state.currentBlindLevel < state.blindSchedule.length) {
+    return state.blindSchedule[state.currentBlindLevel].minChipDenom;
+  }
+  return getMinChipDenom(state.bigBlindAmount);
+}
+
+function roundUpToChipDenom(value: number, chipDenom: number): number {
+  if (chipDenom <= 1) return value;
+  return Math.ceil(value / chipDenom) * chipDenom;
+}
+
+function roundDownToChipDenom(value: number, chipDenom: number): number {
+  if (chipDenom <= 1) return value;
+  return Math.floor(value / chipDenom) * chipDenom;
 }
 
 export interface ValidationError {
@@ -89,6 +115,13 @@ export function validateAction(
     }
     if (option.max !== undefined && actionAmount > option.max) {
       return { code: 'INVALID_AMOUNT', message: `${actionType} amount ${actionAmount} is above maximum ${option.max}` };
+    }
+    // Tournament chip denomination enforcement
+    if (state.gameType === 'tournament') {
+      const chipDenom = getCurrentMinChipDenom(state);
+      if (chipDenom > 1 && actionAmount % chipDenom !== 0) {
+        return { code: 'INVALID_AMOUNT', message: `${actionType} amount ${actionAmount} must be a multiple of ${chipDenom}` };
+      }
     }
   }
 

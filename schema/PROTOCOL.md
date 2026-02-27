@@ -50,6 +50,7 @@ Examples: `Ad` (ace of diamonds), `Tc` (ten of clubs), `6s` (six of spades).
 | `playerAction`  | `{ handNumber, type, amount? }`        | Submit a game action               |
 | `revealCards`   | `{ handNumber }`                       | Voluntarily show hole cards        |
 | `chat`          | `{ message }`                          | Send a chat message                |
+| `setSittingOut` | `{ sittingOut: boolean }`              | Toggle sit-out mode                |
 | `leaveGame`     | `{}`                                   | Leave the current game             |
 
 ### Server to Client
@@ -61,6 +62,7 @@ Examples: `Ad` (ace of diamonds), `Tc` (ten of clubs), `6s` (six of spades).
 | `gameJoined`    | `{ gameState }`                               | Joined a game, here's the initial state      |
 | `gameState`     | `{ gameState, event, actionRequest? }`        | **Main message** — every state transition    |
 | `timeWarning`   | `{ remainingMs }`                             | Action timer countdown                       |
+| `blindWarning`  | `{ remainingMs, nextLevel }`                  | Blind increase warning (60s, 30s, 10s)       |
 | `gameOver`      | `{ gameId, reason, standings[] }`             | Game concluded                               |
 | `chatMessage`   | `{ playerId, displayName, message, timestamp }` | Chat broadcast                            |
 | `error`         | `{ code, message, details? }`                 | Something went wrong                         |
@@ -211,7 +213,7 @@ The full snapshot sent with every game event:
 | Field              | Type              | Description                                           |
 | ------------------ | ----------------- | ----------------------------------------------------- |
 | `gameId`           | `string (uuid)`   | Game identifier                                       |
-| `gameType`         | `"cash"`          | Game type (tournament support planned)                |
+| `gameType`         | `"cash" \| "tournament"` | Game type                                    |
 | `handNumber`       | `integer`         | Monotonically increasing hand counter                 |
 | `stage`            | `Stage`           | `PRE_FLOP`, `FLOP`, `TURN`, `RIVER`, `SHOWDOWN`      |
 | `communityCards`   | `Card[]`          | Board cards (0-5)                                     |
@@ -222,6 +224,34 @@ The full snapshot sent with every game event:
 | `smallBlindAmount` | `integer`         | Current small blind                                   |
 | `bigBlindAmount`   | `integer`         | Current big blind                                     |
 | `activePlayerId`   | `string | null`   | Who must act, or null                                 |
+| `tournament`       | `TournamentState?`| Present only for tournament games (see below)         |
+
+### TournamentState
+
+Present in `GameState` when `gameType === "tournament"`:
+
+| Field                | Type              | Description                                         |
+| -------------------- | ----------------- | --------------------------------------------------- |
+| `blindSchedule`      | `BlindLevel[]`    | Full blind schedule for the tournament              |
+| `currentBlindLevel`  | `integer`         | Index into `blindSchedule` (0-based)                |
+| `nextBlindChangeAt`  | `integer | null`  | Unix timestamp (ms) of next blind increase, null if paused |
+| `roundLengthMs`      | `integer`         | Duration of each blind level in milliseconds        |
+| `isPaused`           | `boolean`         | Whether the tournament is paused by admin           |
+| `minChipDenom`       | `integer`         | Current smallest chip denomination in play          |
+| `averageStack`       | `integer`         | Average stack of remaining players                  |
+| `playersRemaining`   | `integer`         | Players still alive                                 |
+| `totalPlayers`       | `integer`         | Players who started the tournament                  |
+| `startedAt`          | `integer`         | Tournament start timestamp (Unix ms)                |
+
+### BlindLevel
+
+| Field          | Type      | Description                          |
+| -------------- | --------- | ------------------------------------ |
+| `level`        | `integer` | Level number (1-indexed)             |
+| `smallBlind`   | `integer` | Small blind amount                   |
+| `bigBlind`     | `integer` | Big blind amount                     |
+| `ante`         | `integer` | Ante amount (0 if no antes)          |
+| `minChipDenom` | `integer` | Minimum chip denomination at this level |
 
 ### PlayerState
 
@@ -237,6 +267,7 @@ The full snapshot sent with every game event:
 | `folded`      | `boolean`         | Has this player folded?                                           |
 | `holeCards`   | `Card[] \| null`  | Your cards (or all cards for spectators). Null for opponents.     |
 | `connected`   | `boolean`         | Is this player currently connected?                               |
+| `sittingOut`  | `boolean`         | Is this player sitting out?                                       |
 
 ---
 
@@ -257,6 +288,9 @@ Events are discriminated on the `type` field within the `gameState` payload's `e
 | `SHOWDOWN`        | `results: [{ playerId, holeCards, handRank, handDescription }]`|
 | `HAND_END`        | `winners: [{ playerId, amount, potIndex }]`                    |
 | `PLAYER_REVEALED` | `playerId`, `holeCards`                                        |
+| `BLIND_LEVEL_UP`  | `level: BlindLevel` — blinds have increased                    |
+| `TOURNAMENT_PAUSED` | _(no extra fields)_ — admin paused the tournament            |
+| `TOURNAMENT_RESUMED` | _(no extra fields)_ — admin resumed the tournament          |
 | `PLAYER_JOINED`   | `playerId`, `displayName`, `seatIndex`, `role?`                |
 | `PLAYER_LEFT`     | `playerId`                                                     |
 
@@ -288,3 +322,18 @@ Events are discriminated on the `type` field within the `gameState` payload's `e
 - **Everyone folds:** `HAND_END` fires immediately (no `SHOWDOWN`). Pot goes to the last player standing.
 - **Card reveal:** After `SHOWDOWN`, you can optionally send `{ action: "revealCards", payload: { handNumber } }`. Server broadcasts a `PLAYER_REVEALED` event.
 - **Spectators:** Join with `{ gameId, role: "spectator" }`. Same `gameState` messages as players, but `holeCards` are visible for all players and `actionRequest` is never included. Spectators don't need to `ready` up, don't count against `maxPlayers`, and can chat.
+
+---
+
+## Tournament Flow
+
+Sit-and-go tournaments differ from cash games:
+
+1. **Fixed starting stack** (5,000) and **fixed starting blinds** (25/50).
+2. **No late registration.** Once the admin starts the tournament, new players join as spectators only.
+3. **Blinds escalate** on a timer. The server broadcasts `blindWarning` messages at 60s, 30s, and 10s before each increase, then emits a `BLIND_LEVEL_UP` event at hand boundaries.
+4. **Antes** are posted before blinds when enabled and the blind level reaches level 4+.
+5. **Chip denominations** increase as blinds grow. Bet amounts must be multiples of the current `minChipDenom` (enforced server-side, reflected in `actionRequest` min/max).
+6. **Sitting out:** Players who timeout are automatically set to sitting out. Sitting-out players in tournaments still pay blinds and get dealt cards, but auto-fold every hand. Use `setSittingOut` to toggle. In cash games, sitting-out players are skipped entirely.
+7. **Pause/resume:** Admin can pause tournaments. When paused, the current hand completes but no new hand starts, and the blind timer is frozen.
+8. **Tournament end:** When only one player has chips remaining, the tournament ends with standings.

@@ -14,6 +14,7 @@ import {
 } from '../adapter'
 import { NUM_SEATS, SHOWDOWN_DELAY } from '../constants'
 import { delay } from '../utils/Animations'
+import { playBlindWarningTick, playBlindLevelUp } from '../audio/sounds'
 
 export type GameControllerEvent =
   | { type: 'gameStarted' }
@@ -91,6 +92,12 @@ export class GameController {
       if (msg.action === 'timeWarning') {
         const payload = msg.payload as { remainingMs: number }
         this.renderer?.updateTimer(payload.remainingMs)
+        return
+      }
+
+      // Handle blindWarning synchronously — audio tick
+      if (msg.action === 'blindWarning') {
+        playBlindWarningTick()
         return
       }
 
@@ -311,10 +318,11 @@ export class GameController {
       this.pendingActionRequest = true
       this.actionCancelled = false
       const available = adaptActionRequest(actionRequest)
+      const minChipDenom = serverState.tournament?.minChipDenom
 
       try {
         const uiAction = await this.renderer!.waitForHumanAction(
-          available, serverState.pot, actionRequest.timeToActMs,
+          available, serverState.pot, actionRequest.timeToActMs, minChipDenom,
         )
         if (!this.actionCancelled) {
           const serverAction = adaptPlayerAction(uiAction, this.currentHandNumber, available)
@@ -430,6 +438,26 @@ export class GameController {
           }
           await r.animateWinners(winnerIndices)
         }
+        break
+      }
+
+      case 'BLIND_LEVEL_UP': {
+        const lvl = event.level
+        r.addLog(`--- Blinds up: ${lvl.smallBlind}/${lvl.bigBlind}${lvl.ante > 0 ? ` (ante ${lvl.ante})` : ''} ---`)
+        playBlindLevelUp()
+        r.update(uiState)
+        break
+      }
+
+      case 'TOURNAMENT_PAUSED': {
+        r.addLog('--- Tournament PAUSED ---')
+        r.update(uiState)
+        break
+      }
+
+      case 'TOURNAMENT_RESUMED': {
+        r.addLog('--- Tournament RESUMED ---')
+        r.update(uiState)
         break
       }
 

@@ -60,6 +60,8 @@ channels:
         $ref: '#/components/messages/ChatMessage'
       leaveGame:
         $ref: '#/components/messages/LeaveGameMessage'
+      setSittingOut:
+        $ref: '#/components/messages/SetSittingOutMessage'
 
   serverMessage:
     address: /
@@ -81,6 +83,8 @@ channels:
         $ref: '#/components/messages/ChatBroadcastMessage'
       error:
         $ref: '#/components/messages/ErrorMessage'
+      blindWarning:
+        $ref: '#/components/messages/BlindWarningMessage'
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # OPERATIONS
@@ -102,6 +106,7 @@ operations:
       - $ref: '#/channels/clientMessage/messages/revealCards'
       - $ref: '#/channels/clientMessage/messages/chat'
       - $ref: '#/channels/clientMessage/messages/leaveGame'
+      - $ref: '#/channels/clientMessage/messages/setSittingOut'
 
   sendServerMessage:
     action: send
@@ -120,6 +125,7 @@ operations:
       - $ref: '#/channels/serverMessage/messages/gameOver'
       - $ref: '#/channels/serverMessage/messages/chatMessage'
       - $ref: '#/channels/serverMessage/messages/error'
+      - $ref: '#/channels/serverMessage/messages/blindWarning'
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COMPONENTS — Reusable messages and schemas
@@ -248,6 +254,23 @@ components:
             type: object
             additionalProperties: false
 
+    SetSittingOutMessage:
+      summary: Toggle sit-out mode
+      description: |
+        Toggle whether the player is sitting out. Sitting-out players in cash games
+        are skipped entirely. In tournaments, they are dealt cards and pay blinds
+        but auto-fold every action.
+      payload:
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: setSittingOut
+          payload:
+            $ref: '#/components/schemas/SetSittingOutPayload'
+
     # Server → Client ──────────────────────────────────────────────────────────
 
     IdentifiedMessage:
@@ -367,6 +390,23 @@ components:
           payload:
             $ref: '#/components/schemas/ErrorPayload'
 
+    BlindWarningMessage:
+      summary: Blind level change countdown warning
+      description: |
+        Sent to all players in a tournament at 60s, 30s, and 10s before the
+        blind level increases. Clients can use this to display countdown
+        warnings and play audio cues.
+      payload:
+        type: object
+        required: [action, payload]
+        additionalProperties: false
+        properties:
+          action:
+            type: string
+            const: blindWarning
+          payload:
+            $ref: '#/components/schemas/BlindWarningPayload'
+
   # ─────────────────────────────────────────────────────────────────────────────
   # Schemas
   # ─────────────────────────────────────────────────────────────────────────────
@@ -408,12 +448,12 @@ components:
 
     ClientAction:
       type: string
-      enum: [identify, listGames, joinGame, ready, playerAction, revealCards, chat, leaveGame]
+      enum: [identify, listGames, joinGame, ready, playerAction, revealCards, chat, leaveGame, setSittingOut]
       description: Client-to-server message action types.
 
     ServerAction:
       type: string
-      enum: [identified, gameList, gameJoined, gameState, timeWarning, gameOver, chatMessage, error]
+      enum: [identified, gameList, gameJoined, gameState, timeWarning, gameOver, chatMessage, error, blindWarning]
       description: Server-to-client message action types.
 
     ErrorCode:
@@ -502,6 +542,12 @@ components:
         connected:
           type: boolean
           description: Whether the player is currently connected.
+        sittingOut:
+          type: boolean
+          description: >-
+            Whether the player is sitting out. In cash games, sitting-out players
+            are skipped for dealing and blinds. In tournaments, they are dealt
+            cards and pay blinds but auto-fold every action.
 
     PotBreakdown:
       type: object
@@ -589,15 +635,101 @@ components:
           format: uuid
           nullable: true
           description: Player who must act next, or null if no action pending.
-        # ── Tournament extension (future) ──
-        # blindSchedule:
-        #   type: array
-        #   items:
-        #     $ref: '#/components/schemas/BlindLevel'
-        #   description: '[Tournament only] Full blind schedule.'
-        # nextBlindLevel:
-        #   $ref: '#/components/schemas/NextBlindLevel'
-        #   description: '[Tournament only] Next blind level and ms until it activates.'
+        tournament:
+          $ref: '#/components/schemas/TournamentState'
+          description: >-
+            Present only for tournament games. Contains blind schedule,
+            timer state, and tournament progress.
+
+    # ── Tournament Schemas ───────────────────────────────────────────────────
+
+    BlindLevel:
+      type: object
+      required: [level, smallBlind, bigBlind, ante, minChipDenom]
+      additionalProperties: false
+      description: A single level in the tournament blind schedule.
+      properties:
+        level:
+          type: integer
+          minimum: 1
+          description: 1-based level number.
+        smallBlind:
+          type: integer
+          minimum: 1
+          description: Small blind amount at this level.
+        bigBlind:
+          type: integer
+          minimum: 1
+          description: Big blind amount at this level.
+        ante:
+          type: integer
+          minimum: 0
+          description: Ante amount at this level (0 if antes not yet active).
+        minChipDenom:
+          type: integer
+          minimum: 1
+          description: >-
+            Smallest chip denomination in play at this level.
+            All bets must be multiples of this value.
+
+    TournamentState:
+      type: object
+      required:
+        - blindSchedule
+        - currentBlindLevel
+        - nextBlindChangeAt
+        - roundLengthMs
+        - isPaused
+        - minChipDenom
+        - averageStack
+        - playersRemaining
+        - totalPlayers
+        - startedAt
+      additionalProperties: false
+      description: >-
+        Tournament-specific state, present only when gameType is "tournament".
+      properties:
+        blindSchedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlindLevel'
+          description: Full blind schedule for the tournament.
+        currentBlindLevel:
+          type: integer
+          minimum: 0
+          description: 0-based index into the blindSchedule array.
+        nextBlindChangeAt:
+          type: integer
+          nullable: true
+          description: >-
+            Unix timestamp (ms) when the next blind level activates.
+            Null if the tournament is paused.
+        roundLengthMs:
+          type: integer
+          minimum: 1
+          description: Duration of each blind level in milliseconds.
+        isPaused:
+          type: boolean
+          description: Whether the tournament is currently paused by the admin.
+        minChipDenom:
+          type: integer
+          minimum: 1
+          description: Current smallest chip denomination in play.
+        averageStack:
+          type: integer
+          minimum: 0
+          description: Average stack of remaining players.
+        playersRemaining:
+          type: integer
+          minimum: 0
+          description: Number of players still alive in the tournament.
+        totalPlayers:
+          type: integer
+          minimum: 2
+          description: Total number of players who started the tournament.
+        startedAt:
+          type: integer
+          description: Unix timestamp (ms) when the tournament started.
 
     # ── Action Schemas ────────────────────────────────────────────────────────
 
@@ -676,6 +808,9 @@ components:
         - $ref: '#/components/schemas/PlayerRevealedEvent'
         - $ref: '#/components/schemas/PlayerJoinedEvent'
         - $ref: '#/components/schemas/PlayerLeftEvent'
+        - $ref: '#/components/schemas/BlindLevelUpEvent'
+        - $ref: '#/components/schemas/TournamentPausedEvent'
+        - $ref: '#/components/schemas/TournamentResumedEvent'
       discriminator: type
 
     HandStartEvent:
@@ -928,6 +1063,43 @@ components:
           type: string
           format: uuid
 
+    BlindLevelUpEvent:
+      type: object
+      required: [type, level]
+      additionalProperties: false
+      description: >-
+        Emitted at the start of a hand when the blind level has increased.
+        Contains the new BlindLevel that is now in effect.
+      properties:
+        type:
+          type: string
+          const: BLIND_LEVEL_UP
+        level:
+          $ref: '#/components/schemas/BlindLevel'
+
+    TournamentPausedEvent:
+      type: object
+      required: [type]
+      additionalProperties: false
+      description: >-
+        Emitted when the admin pauses the tournament. No new hands will
+        start until the tournament is resumed.
+      properties:
+        type:
+          type: string
+          const: TOURNAMENT_PAUSED
+
+    TournamentResumedEvent:
+      type: object
+      required: [type]
+      additionalProperties: false
+      description: >-
+        Emitted when the admin resumes a paused tournament.
+      properties:
+        type:
+          type: string
+          const: TOURNAMENT_RESUMED
+
     # ── Message Payloads ──────────────────────────────────────────────────────
 
     IdentifyPayload:
@@ -1010,6 +1182,30 @@ components:
           minLength: 1
           maxLength: 500
 
+    SetSittingOutPayload:
+      type: object
+      required: [sittingOut]
+      additionalProperties: false
+      properties:
+        sittingOut:
+          type: boolean
+          description: >-
+            True to sit out, false to return to active play.
+            Takes effect from the next hand.
+
+    BlindWarningPayload:
+      type: object
+      required: [remainingMs, nextLevel]
+      additionalProperties: false
+      properties:
+        remainingMs:
+          type: integer
+          minimum: 0
+          description: Milliseconds remaining until the blind level increases.
+        nextLevel:
+          $ref: '#/components/schemas/BlindLevel'
+          description: The blind level that will be active after the change.
+
     GameListItem:
       type: object
       required:
@@ -1020,6 +1216,7 @@ components:
         - maxPlayers
         - smallBlindAmount
         - bigBlindAmount
+        - startingStack
         - status
       additionalProperties: false
       properties:
@@ -1042,10 +1239,24 @@ components:
         bigBlindAmount:
           type: integer
           minimum: 1
+        startingStack:
+          type: integer
+          minimum: 1
+          description: Starting chip stack per player.
         status:
           type: string
           enum: [waiting, in_progress]
           description: Whether the game is waiting for players or already running.
+        tournamentLengthHours:
+          type: number
+          nullable: true
+          description: >-
+            Tournament duration in hours. Present only for tournament games.
+        roundLengthMinutes:
+          type: integer
+          nullable: true
+          description: >-
+            Blind level duration in minutes. Present only for tournament games.
 
     GameListPayload:
       type: object

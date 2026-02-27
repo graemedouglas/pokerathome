@@ -17,6 +17,7 @@ import type { WsClient } from '../network/ws-client';
 import type { ReplayController } from '../network/replay-controller';
 import { ReplayControls } from './ReplayControls';
 import { ReplayCardVisibilityPanel } from './ReplayCardVisibilityPanel';
+import { TournamentInfoBar } from './TournamentInfoBar';
 import { tween, delay, easeOutBack, easeOutCubic } from '../utils/Animations';
 import { evaluateHandDescription } from '../utils/hand-evaluator';
 
@@ -58,6 +59,11 @@ export class GameRenderer {
   private isReplayMode = false;
   private replayControls: ReplayControls | null = null;
   private replayCardPanel: ReplayCardVisibilityPanel | null = null;
+  private tournamentInfoBar: TournamentInfoBar | null = null;
+  private sitOutButton: Container | null = null;
+  private sitOutButtonText: Text | null = null;
+  private isSittingOut = false;
+  private wsClient: WsClient | null = null;
 
   async init(isSpectator = false, ws?: WsClient, replayController?: ReplayController): Promise<void> {
     this.isSpectator = isSpectator;
@@ -293,6 +299,50 @@ export class GameRenderer {
     this.spectatorText.visible = this.isSpectator || this.isReplayMode;
     this.uiLayer.addChild(this.spectatorText);
 
+    // Tournament info bar (initially hidden, shown when tournament state arrives)
+    this.tournamentInfoBar = new TournamentInfoBar();
+    this.tournamentInfoBar.visible = false;
+    this.uiLayer.addChild(this.tournamentInfoBar);
+
+    // Sit-out / I'm here button (only for non-spectator, non-replay)
+    if (!this.isSpectator && !this.isReplayMode) {
+      this.wsClient = ws ?? null;
+      this.sitOutButton = new Container();
+      this.sitOutButton.x = CANVAS_WIDTH - 100;
+      this.sitOutButton.y = CANVAS_HEIGHT - 40;
+      this.sitOutButton.eventMode = 'static';
+      this.sitOutButton.cursor = 'pointer';
+
+      const sitOutBg = new Graphics();
+      sitOutBg.roundRect(-50, -14, 100, 28, 6);
+      sitOutBg.fill({ color: 0x333355, alpha: 0.8 });
+      this.sitOutButton.addChild(sitOutBg);
+
+      this.sitOutButtonText = new Text({
+        text: 'Sit Out',
+        style: { fontSize: 11, fill: COLORS.textLight, fontFamily: 'Arial', fontWeight: 'bold' },
+      });
+      this.sitOutButtonText.anchor.set(0.5);
+      this.sitOutButton.addChild(this.sitOutButtonText);
+
+      this.sitOutButton.on('pointerdown', () => {
+        this.isSittingOut = !this.isSittingOut;
+        this.sitOutButtonText!.text = this.isSittingOut ? "I'm Back" : 'Sit Out';
+        this.wsClient?.send('setSittingOut', { sittingOut: this.isSittingOut });
+      });
+      this.sitOutButton.on('pointerover', () => {
+        sitOutBg.clear();
+        sitOutBg.roundRect(-50, -14, 100, 28, 6);
+        sitOutBg.fill({ color: 0x555599, alpha: 0.95 });
+      });
+      this.sitOutButton.on('pointerout', () => {
+        sitOutBg.clear();
+        sitOutBg.roundRect(-50, -14, 100, 28, 6);
+        sitOutBg.fill({ color: 0x333355, alpha: 0.8 });
+      });
+      this.uiLayer.addChild(this.sitOutButton);
+    }
+
     // Chat panel (HTML overlay)
     if (ws) {
       this.chatPanel = new ChatPanel(ws);
@@ -345,6 +395,14 @@ export class GameRenderer {
     this.handInfoText.text = state.handNumber > 0
       ? `Hand #${state.handNumber}  $${state.smallBlindAmount}/$${state.bigBlindAmount}`
       : '';
+
+    // Update tournament info bar
+    if (state.tournament && this.tournamentInfoBar) {
+      this.tournamentInfoBar.visible = true;
+      this.tournamentInfoBar.update(state.tournament);
+    } else if (this.tournamentInfoBar) {
+      this.tournamentInfoBar.visible = false;
+    }
     this.phaseText.text = PHASE_LABELS[state.phase] || '';
 
     // Status line — context-aware feedback
@@ -443,14 +501,14 @@ export class GameRenderer {
     this.infoPanel.updateStats(handsPlayed, handsWon, biggestPot);
   }
 
-  waitForHumanAction(available: AvailableActions, pot: number, timeToActMs?: number): Promise<PlayerAction> {
+  waitForHumanAction(available: AvailableActions, pot: number, timeToActMs?: number, minChipDenom?: number): Promise<PlayerAction> {
     return new Promise((resolve) => {
       this.humanActionResolve = resolve;
       this.actionPanel.show(available, pot, (action: PlayerAction) => {
         this.humanActionResolve = null;
         this.actionPanel.hide();
         resolve(action);
-      }, timeToActMs);
+      }, timeToActMs, minChipDenom);
     });
   }
 

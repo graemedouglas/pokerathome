@@ -250,6 +250,10 @@ export class PlayerRenderer extends Container {
       this.statusText.text = 'ALL IN';
       this.statusText.style.fill = 0xff6644;
       this.alpha = 1;
+    } else if (player.isSittingOut) {
+      this.statusText.text = 'SITTING OUT';
+      this.statusText.style.fill = 0x888888;
+      this.alpha = 0.6;
     } else {
       this.statusText.text = '';
       this.alpha = 1;

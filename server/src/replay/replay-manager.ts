@@ -305,6 +305,7 @@ export class ReplayInstance {
           folded: p.folded,
           holeCards: p.holeCards,
           connected: p.connected,
+          sittingOut: p.sittingOut ?? false,
         })),
     };
 

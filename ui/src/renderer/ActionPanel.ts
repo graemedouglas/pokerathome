@@ -56,6 +56,7 @@ export class ActionPanel extends Container {
   private minRaise = 0;
   private maxRaise = 0;
   private currentPot = 0;
+  private chipStep = BIG_BLIND; // step size for slider (minChipDenom for tournaments)
   private callback: ActionCallback | null = null;
   private bgPanel!: Graphics;
   private raiseButtonText: Text | null = null;
@@ -132,7 +133,7 @@ export class ActionPanel extends Container {
     const controlsX = trackX + TRACK_WIDTH + 80;
 
     const minusBtn = this.makeSmallBtn('-', controlsX - 55, () => {
-      this.setRaiseAmount(this.raiseAmount - BIG_BLIND);
+      this.setRaiseAmount(this.raiseAmount - this.chipStep);
     });
     row.addChild(minusBtn);
 
@@ -159,7 +160,7 @@ export class ActionPanel extends Container {
     row.addChild(this.amountGroup);
 
     const plusBtn = this.makeSmallBtn('+', controlsX + 55, () => {
-      this.setRaiseAmount(this.raiseAmount + BIG_BLIND);
+      this.setRaiseAmount(this.raiseAmount + this.chipStep);
     });
     row.addChild(plusBtn);
   }
@@ -282,7 +283,7 @@ export class ActionPanel extends Container {
     this.sliderKnob.x = trackX + clamped;
     const ratio = clamped / TRACK_WIDTH;
     let amount = Math.round(this.minRaise + ratio * (this.maxRaise - this.minRaise));
-    amount = Math.round(amount / BIG_BLIND) * BIG_BLIND;
+    amount = Math.round(amount / this.chipStep) * this.chipStep;
     amount = Math.max(this.minRaise, Math.min(amount, this.maxRaise));
     this.raiseAmount = amount;
     this.updateDisplays();
@@ -296,7 +297,7 @@ export class ActionPanel extends Container {
 
   private setRaiseAmount(amount: number): void {
     const trackX = -PANEL_WIDTH / 2 + 24;
-    amount = Math.round(amount / BIG_BLIND) * BIG_BLIND;
+    amount = Math.round(amount / this.chipStep) * this.chipStep;
     this.raiseAmount = Math.max(this.minRaise, Math.min(amount, this.maxRaise));
     const ratio = (this.raiseAmount - this.minRaise) / (this.maxRaise - this.minRaise || 1);
     const knobX = ratio * TRACK_WIDTH;
@@ -386,10 +387,11 @@ export class ActionPanel extends Container {
     input.addEventListener('blur', applyAndCleanup);
   }
 
-  show(available: AvailableActions, pot: number, callback: ActionCallback, timeToActMs?: number): void {
+  show(available: AvailableActions, pot: number, callback: ActionCallback, timeToActMs?: number, minChipDenom?: number): void {
     this.callback = callback;
     this.currentPot = pot;
     this.raiseType = available.raiseType;
+    this.chipStep = minChipDenom && minChipDenom > 0 ? minChipDenom : BIG_BLIND;
     this.visible = true;
     this.raiseButtonText = null;
 
