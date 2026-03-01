@@ -260,4 +260,18 @@ describe('BlindLevel shape', () => {
       expect(level.minChipDenom).toBeGreaterThan(0)
     }
   })
+
+  test('schedule is never empty for valid config', () => {
+    // Various configs should always produce at least 1 level
+    const configs = [
+      makeConfig({ numPlayers: 2 }),
+      makeConfig({ numPlayers: 9 }),
+      makeConfig({ tournamentLengthHours: 0.5, roundLengthMinutes: 5 }),
+      makeConfig({ tournamentLengthHours: 4, roundLengthMinutes: 20 }),
+    ]
+    for (const cfg of configs) {
+      const schedule = generateBlindSchedule(cfg)
+      expect(schedule.length).toBeGreaterThan(0)
+    }
+  })
 })

@@ -269,6 +269,13 @@ export const TournamentResumedEvent = z.object({
 });
 export type TournamentResumedEvent = z.infer<typeof TournamentResumedEvent>;
 
+export const PlayerSittingOutEvent = z.object({
+  type: z.literal('PLAYER_SITTING_OUT'),
+  playerId: z.string().uuid(),
+  sittingOut: z.boolean(),
+});
+export type PlayerSittingOutEvent = z.infer<typeof PlayerSittingOutEvent>;
+
 export const Event = z.discriminatedUnion('type', [
   HandStartEvent,
   BlindsPostedEvent,
@@ -286,6 +293,7 @@ export const Event = z.discriminatedUnion('type', [
   BlindLevelUpEvent,
   TournamentPausedEvent,
   TournamentResumedEvent,
+  PlayerSittingOutEvent,
 ]);
 export type Event = z.infer<typeof Event>;
 

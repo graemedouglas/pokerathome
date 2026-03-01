@@ -226,8 +226,21 @@ export function setPlayerSittingOut(state: EngineState, playerId: string, sittin
 
 /** Advance to the next blind level. Returns a transition with the BLIND_LEVEL_UP event. */
 export function advanceBlindLevel(inputState: EngineState): Transition {
-  const nextIdx = inputState.currentBlindLevel + 1;
   const schedule = inputState.blindSchedule;
+
+  // Guard: empty schedule — return current state unchanged
+  if (schedule.length === 0) {
+    const fallbackLevel: BlindLevel = {
+      level: 1,
+      smallBlind: inputState.smallBlindAmount,
+      bigBlind: inputState.bigBlindAmount,
+      ante: 0,
+      minChipDenom: 25,
+    };
+    return { state: inputState, event: { type: 'BLIND_LEVEL_UP', level: fallbackLevel } };
+  }
+
+  const nextIdx = inputState.currentBlindLevel + 1;
 
   // Clamp to last level (schedule is uncapped so this is a safety guard)
   const levelIdx = Math.min(nextIdx, schedule.length - 1);

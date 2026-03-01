@@ -4,6 +4,7 @@
 import {
   createInitialState,
   addPlayer,
+  advanceBlindLevel,
   toClientGameState,
   type EngineState,
   type GameConfig,
@@ -68,5 +69,52 @@ describe('toClientGameState tournament field', () => {
     const clientState = toClientGameState(state, 'player-1');
     expect(clientState.gameType).toBe('cash');
     expect(clientState.tournament).toBeUndefined();
+  });
+});
+
+describe('advanceBlindLevel', () => {
+  test('empty blindSchedule does not crash — returns state unchanged', () => {
+    const state = makeTournamentState();
+    expect(state.blindSchedule).toHaveLength(0);
+
+    const result = advanceBlindLevel(state);
+    expect(result.state.smallBlindAmount).toBe(25); // unchanged from initial
+    expect(result.state.bigBlindAmount).toBe(50); // unchanged
+    expect(result.event.type).toBe('BLIND_LEVEL_UP');
+  });
+
+  test('valid schedule advances to next level', () => {
+    let state = makeTournamentState();
+    state = {
+      ...state,
+      blindSchedule: [
+        { level: 1, smallBlind: 25, bigBlind: 50, ante: 0, minChipDenom: 25 },
+        { level: 2, smallBlind: 50, bigBlind: 100, ante: 0, minChipDenom: 25 },
+        { level: 3, smallBlind: 100, bigBlind: 200, ante: 0, minChipDenom: 100 },
+      ],
+      currentBlindLevel: 0,
+    };
+
+    const result = advanceBlindLevel(state);
+    expect(result.state.currentBlindLevel).toBe(1);
+    expect(result.state.smallBlindAmount).toBe(50);
+    expect(result.state.bigBlindAmount).toBe(100);
+    expect(result.event.type).toBe('BLIND_LEVEL_UP');
+  });
+
+  test('clamps to last level when already at end', () => {
+    let state = makeTournamentState();
+    state = {
+      ...state,
+      blindSchedule: [
+        { level: 1, smallBlind: 25, bigBlind: 50, ante: 0, minChipDenom: 25 },
+        { level: 2, smallBlind: 50, bigBlind: 100, ante: 0, minChipDenom: 25 },
+      ],
+      currentBlindLevel: 1, // already at last level
+    };
+
+    const result = advanceBlindLevel(state);
+    expect(result.state.currentBlindLevel).toBe(1); // clamped
+    expect(result.state.bigBlindAmount).toBe(100);
   });
 });

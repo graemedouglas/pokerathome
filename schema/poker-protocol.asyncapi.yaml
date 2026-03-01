@@ -811,6 +811,7 @@ components:
         - $ref: '#/components/schemas/BlindLevelUpEvent'
         - $ref: '#/components/schemas/TournamentPausedEvent'
         - $ref: '#/components/schemas/TournamentResumedEvent'
+        - $ref: '#/components/schemas/PlayerSittingOutEvent'
       discriminator: type
 
     HandStartEvent:
@@ -1099,6 +1100,23 @@ components:
         type:
           type: string
           const: TOURNAMENT_RESUMED
+
+    PlayerSittingOutEvent:
+      type: object
+      required: [type, playerId, sittingOut]
+      additionalProperties: false
+      description: >-
+        Emitted when a player toggles their sit-out status (either manually
+        or automatically after a timeout).
+      properties:
+        type:
+          type: string
+          const: PLAYER_SITTING_OUT
+        playerId:
+          type: string
+          format: uuid
+        sittingOut:
+          type: boolean
 
     # ── Message Payloads ──────────────────────────────────────────────────────
 

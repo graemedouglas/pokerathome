@@ -336,8 +336,14 @@ export class GameManager {
     );
 
     if (readyPlayers.length >= config.MIN_PLAYERS_TO_START) {
+      this.initializeTournament(active, readyPlayers);
       updateGameStatus(gameId, 'in_progress');
       this.startNextHand(gameId, sessions);
+
+      // Start blind timer after the first hand begins (for tournaments)
+      if (active.state.gameType === 'tournament' && active.tournamentConfig) {
+        this.startBlindTimer(gameId, sessions);
+      }
     }
   }
 
@@ -361,28 +367,7 @@ export class GameManager {
       active.state = setPlayerReady(active.state, p.id);
     }
 
-    // For tournaments: generate blind schedule and set up tournament state
-    if (active.state.gameType === 'tournament' && active.tournamentConfig) {
-      const tc = active.tournamentConfig;
-      const schedule = generateBlindSchedule({
-        numPlayers: players.length,
-        tournamentLengthHours: tc.tournamentLengthHours,
-        roundLengthMinutes: tc.roundLengthMinutes,
-        antesEnabled: tc.antesEnabled,
-      });
-
-      active.state = {
-        ...active.state,
-        blindSchedule: schedule,
-        currentBlindLevel: 0,
-        smallBlindAmount: schedule[0].smallBlind,
-        bigBlindAmount: schedule[0].bigBlind,
-        antesEnabled: tc.antesEnabled,
-        tournamentStartedAt: Date.now(),
-        totalPlayers: players.length,
-      };
-      active.tournamentStartedAt = Date.now();
-    }
+    this.initializeTournament(active, players);
 
     updateGameStatus(gameId, 'in_progress');
     this.startNextHand(gameId, sessions);
@@ -393,6 +378,31 @@ export class GameManager {
     }
 
     return true;
+  }
+
+  /** Generate blind schedule and set up tournament state (shared by tryStartGame and forceStartGame). */
+  private initializeTournament(active: ActiveGame, players: { id: string }[]): void {
+    if (active.state.gameType !== 'tournament' || !active.tournamentConfig) return;
+
+    const tc = active.tournamentConfig;
+    const schedule = generateBlindSchedule({
+      numPlayers: players.length,
+      tournamentLengthHours: tc.tournamentLengthHours,
+      roundLengthMinutes: tc.roundLengthMinutes,
+      antesEnabled: tc.antesEnabled,
+    });
+
+    active.state = {
+      ...active.state,
+      blindSchedule: schedule,
+      currentBlindLevel: 0,
+      smallBlindAmount: schedule[0].smallBlind,
+      bigBlindAmount: schedule[0].bigBlind,
+      antesEnabled: tc.antesEnabled,
+      tournamentStartedAt: Date.now(),
+      totalPlayers: players.length,
+    };
+    active.tournamentStartedAt = Date.now();
   }
 
   // ─── Hand management ────────────────────────────────────────────────────────
@@ -420,15 +430,15 @@ export class GameManager {
     if (isTournament) {
       const activePlayers = playersWithChips.filter(p => !p.sittingOut);
       if (activePlayers.length < 2) {
-        active.isPaused = true;
-        active.waitingForPlayers = true;
-        this.clearBlindTimers(active);
-
-        // Preserve remaining blind time so it resumes correctly
+        // Preserve remaining blind time BEFORE clearing timers (clearBlindTimers nulls the fields)
         if (active.blindTimerStartedAt != null && active.blindTimerDurationMs != null) {
           const elapsed = Date.now() - active.blindTimerStartedAt;
           active.pausedBlindRemainingMs = Math.max(0, active.blindTimerDurationMs - elapsed);
         }
+
+        active.isPaused = true;
+        active.waitingForPlayers = true;
+        this.clearBlindTimers(active);
 
         const event: Event = { type: 'TOURNAMENT_PAUSED' };
         active.recorder?.recordEvent(event, active.state);
@@ -878,6 +888,7 @@ export class GameManager {
   private startBlindTimer(gameId: string, sessions: SessionManager, durationMs?: number): void {
     const active = this.activeGames.get(gameId);
     if (!active || !active.tournamentConfig) return;
+    if (active.state.blindSchedule.length === 0) return; // No schedule to advance through
 
     this.clearBlindTimers(active);
 
@@ -1017,7 +1028,7 @@ export class GameManager {
       action: 'gameState',
       payload: buildGameStatePayload(
         active.state,
-        { type: 'PLAYER_JOINED', playerId, displayName: player.displayName, seatIndex: player.seatIndex } as Event,
+        { type: 'PLAYER_SITTING_OUT', playerId, sittingOut } as Event,
         viewerId,
         active.state.activePlayerId === viewerId ? config.ACTION_TIMEOUT_MS : undefined,
         active.spectatorVisibility,

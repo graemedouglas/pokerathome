@@ -461,6 +461,14 @@ export class GameController {
         break
       }
 
+      case 'PLAYER_SITTING_OUT': {
+        const sitPlayer = serverState.players.find(p => p.id === event.playerId)
+        const sitName = sitPlayer?.displayName ?? 'Player'
+        r.addLog(`${sitName} is ${event.sittingOut ? 'sitting out' : 'back'}`)
+        r.update(uiState)
+        break
+      }
+
       case 'PLAYER_JOINED': {
         r.addLog(`${event.displayName} joined`)
         r.update(uiState)
