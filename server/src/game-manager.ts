@@ -710,13 +710,17 @@ export class GameManager {
           );
         }
 
+        // Don't send actionTimeout if the active player is sitting out (they'll be auto-folded)
+        const activeP = active.state.players.find(p => p.id === active.state.activePlayerId);
+        const timeToAct = (activeP?.sittingOut) ? undefined : config.ACTION_TIMEOUT_MS;
+
         return {
           action: 'gameState',
           payload: buildGameStatePayload(
             stateToSend,
             transition.event,
             viewerId,
-            config.ACTION_TIMEOUT_MS,
+            timeToAct,
             active.spectatorVisibility,
             this.getTournamentOverrides(active)
           ),
@@ -1022,7 +1026,9 @@ export class GameManager {
 
     active.state = engineSetSittingOut(active.state, playerId, sittingOut);
 
-    // Broadcast updated state
+    // Broadcast updated state — don't send actionTimeout if the active player is sitting out
+    // (they're about to be auto-acted, so showing action buttons would be misleading)
+    const activeP = active.state.players.find(p => p.id === active.state.activePlayerId);
     const overrides = this.getTournamentOverrides(active);
     sessions.broadcastPersonalized(gameId, (viewerId) => ({
       action: 'gameState',
@@ -1030,7 +1036,7 @@ export class GameManager {
         active.state,
         { type: 'PLAYER_SITTING_OUT', playerId, sittingOut } as Event,
         viewerId,
-        active.state.activePlayerId === viewerId ? config.ACTION_TIMEOUT_MS : undefined,
+        (active.state.activePlayerId === viewerId && !activeP?.sittingOut) ? config.ACTION_TIMEOUT_MS : undefined,
         active.spectatorVisibility,
         overrides
       ),
@@ -1074,10 +1080,16 @@ export class GameManager {
 
     // If the player just came back and they're the active player in a tournament,
     // they should get their normal action timer (already handled by broadcast above).
-    // If they sat out and they're the active player, auto-fold them.
-    if (sittingOut && active.state.activePlayerId === playerId && active.state.gameType === 'tournament') {
+    // If they sat out and they're the active player, resolve their action immediately
+    // with check (if no bet to call) or fold — this is their last "live" action.
+    if (sittingOut && active.state.handInProgress && active.state.activePlayerId === playerId
+        && active.state.gameType === 'tournament') {
       this.clearTimers(active);
-      setTimeout(() => this.autoFoldSittingOutPlayers(gameId, sessions), 0);
+      const canCheck = player.bet >= active.state.currentBet;
+      const defaultAction = canCheck ? 'CHECK' : 'FOLD';
+      this.logger.info({ gameId, playerId, defaultAction }, 'Auto-acting for sitting-out player on sit-out turn');
+      const transitions = processAction(active.state, playerId, defaultAction);
+      this.applyTransitions(gameId, transitions, sessions);
     }
   }
 

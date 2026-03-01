@@ -118,11 +118,11 @@ export class GameController {
         return
       }
 
-      // If we have a pending action and the server says our player timed out,
+      // If we have a pending action and the server says our player timed out or sat out,
       // cancel the action immediately (before queuing) to prevent chain deadlock
       if (msg.action === 'gameState' && this.pendingActionRequest) {
         const payload = msg.payload as GameStateUpdatePayload
-        if (payload.event.type === 'PLAYER_TIMEOUT') {
+        if (payload.event.type === 'PLAYER_TIMEOUT' || payload.event.type === 'PLAYER_SITTING_OUT') {
           const evt = payload.event as { type: string; playerId: string }
           if (evt.playerId === this.myPlayerId) {
             this.cancelPendingAction()
