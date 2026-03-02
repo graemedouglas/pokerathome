@@ -176,6 +176,9 @@ export function handleJoinGame(
       payload: gameManager.buildStatePayload(payload.gameId, result.joinEvent!, viewerId),
     }));
   }
+
+  // Broadcast lobby state so all players see the updated player list
+  gameManager.broadcastLobbyState(payload.gameId, sessions);
 }
 
 // ─── ready ──────────────────────────────────────────────────────────────────────
@@ -197,8 +200,36 @@ export function handleReady(
   gameManager.setPlayerReady(session.gameId, session.playerId);
   logger.info({ playerId: session.playerId, gameId: session.gameId }, 'Player ready');
 
-  // Check if game can auto-start
-  gameManager.tryStartGame(session.gameId, sessions);
+  // Broadcast updated lobby state (who's ready, can the game start?)
+  gameManager.broadcastLobbyState(session.gameId, sessions);
+}
+
+// ─── startGame ──────────────────────────────────────────────────────────────────
+
+export function handleStartGame(
+  session: PlayerSession,
+  sessions: SessionManager,
+  gameManager: GameManager,
+  logger: FastifyBaseLogger
+): void {
+  if (!session.gameId) {
+    sessions.send(session.playerId, {
+      action: 'error',
+      payload: { code: 'NOT_IN_GAME', message: 'You are not in a game.' },
+    });
+    return;
+  }
+
+  const result = gameManager.playerStartGame(session.gameId, session.playerId, sessions);
+  if (!result.ok) {
+    sessions.send(session.playerId, {
+      action: 'error',
+      payload: { code: 'CANNOT_START', message: result.error! },
+    });
+    return;
+  }
+
+  logger.info({ playerId: session.playerId, gameId: session.gameId }, 'Player started game');
 }
 
 // ─── playerAction ───────────────────────────────────────────────────────────────
@@ -363,6 +394,9 @@ export function handleLeaveGame(
   gameManager.removePlayer(gameId, session.playerId, sessions);
   sessions.setGameId(session.playerId, null);
   logger.info({ playerId: session.playerId, gameId }, 'Player left game');
+
+  // Update lobby for remaining players (broadcastLobbyState is a no-op if game is in progress)
+  gameManager.broadcastLobbyState(gameId, sessions);
 }
 
 // ─── replayControl ──────────────────────────────────────────────────────────────

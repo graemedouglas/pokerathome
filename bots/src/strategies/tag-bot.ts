@@ -26,28 +26,46 @@ export class TagBotStrategy implements BotStrategy {
     }
 
     const holeCards = me.holeCards as [string, string]
+    const chipDenom = gameState.tournament?.minChipDenom ?? 1
     const isPreflop = gameState.stage === 'PRE_FLOP'
 
     if (isPreflop) {
-      return this.decidePreflopAction(holeCards, gameState, actionRequest)
+      return this.decidePreflopAction(holeCards, gameState, actionRequest, myPlayerId, chipDenom)
     }
 
-    return this.decidePostflopAction(holeCards, gameState, actionRequest)
+    return this.decidePostflopAction(holeCards, gameState, actionRequest, chipDenom)
   }
 
   private decidePreflopAction(
     holeCards: [string, string],
     gameState: GameState,
-    actionRequest: ActionRequest
+    actionRequest: ActionRequest,
+    myPlayerId: string,
+    chipDenom: number
   ): { type: ActionType; amount?: number } {
     const tier = preflopTier(holeCards[0], holeCards[1])
     const actions = actionRequest.availableActions
     const bb = gameState.bigBlindAmount
+    const me = gameState.players.find((p) => p.id === myPlayerId)
+    const stackBBs = me ? me.stack / bb : Infinity
+
+    // Short-stack mode (≤15 BBs): push or fold
+    if (stackBBs <= 15) {
+      const allIn = actions.find((a) => a.type === 'ALL_IN')
+      if ((tier === 'premium' || tier === 'strong') && allIn) {
+        return { type: 'ALL_IN' }
+      }
+      if (tier === 'playable' && stackBBs <= 8 && allIn) {
+        return { type: 'ALL_IN' }
+      }
+      if (actions.find((a) => a.type === 'CHECK')) return { type: 'CHECK' }
+      return { type: 'FOLD' }
+    }
 
     switch (tier) {
       case 'premium': {
         // Raise 3x BB (or raise the min if 3x isn't enough)
-        const raiseAmount = this.findRaiseAmount(actions, bb * 3)
+        const raiseAmount = this.findRaiseAmount(actions, bb * 3, chipDenom)
         if (raiseAmount !== null) return raiseAmount
         const callAction = actions.find((a) => a.type === 'CALL')
         if (callAction) return { type: 'CALL' }
@@ -56,7 +74,7 @@ export class TagBotStrategy implements BotStrategy {
 
       case 'strong': {
         // Raise 2.5x BB
-        const raiseAmount = this.findRaiseAmount(actions, Math.round(bb * 2.5))
+        const raiseAmount = this.findRaiseAmount(actions, Math.round(bb * 2.5), chipDenom)
         if (raiseAmount !== null) return raiseAmount
         const callAction = actions.find((a) => a.type === 'CALL')
         if (callAction) return { type: 'CALL' }
@@ -88,7 +106,8 @@ export class TagBotStrategy implements BotStrategy {
   private decidePostflopAction(
     holeCards: [string, string],
     gameState: GameState,
-    actionRequest: ActionRequest
+    actionRequest: ActionRequest,
+    chipDenom: number
   ): { type: ActionType; amount?: number } {
     const strength = postflopStrength(holeCards, gameState.communityCards)
     const actions = actionRequest.availableActions
@@ -97,9 +116,9 @@ export class TagBotStrategy implements BotStrategy {
     switch (strength) {
       case 'monster': {
         // Bet/raise ~75% pot
-        const betAmount = this.findBetAmount(actions, Math.round(pot * 0.75))
+        const betAmount = this.findBetAmount(actions, Math.round(pot * 0.75), chipDenom)
         if (betAmount !== null) return betAmount
-        const raiseAmount = this.findRaiseAmount(actions, Math.round(pot * 0.75))
+        const raiseAmount = this.findRaiseAmount(actions, Math.round(pot * 0.75), chipDenom)
         if (raiseAmount !== null) return raiseAmount
         if (actions.find((a) => a.type === 'CALL')) return { type: 'CALL' }
         return this.fallback(actionRequest)
@@ -107,9 +126,9 @@ export class TagBotStrategy implements BotStrategy {
 
       case 'strong': {
         // Bet/raise ~60% pot
-        const betAmount = this.findBetAmount(actions, Math.round(pot * 0.6))
+        const betAmount = this.findBetAmount(actions, Math.round(pot * 0.6), chipDenom)
         if (betAmount !== null) return betAmount
-        const raiseAmount = this.findRaiseAmount(actions, Math.round(pot * 0.6))
+        const raiseAmount = this.findRaiseAmount(actions, Math.round(pot * 0.6), chipDenom)
         if (raiseAmount !== null) return raiseAmount
         if (actions.find((a) => a.type === 'CALL')) return { type: 'CALL' }
         return this.fallback(actionRequest)
@@ -117,7 +136,7 @@ export class TagBotStrategy implements BotStrategy {
 
       case 'medium': {
         // Bet ~40% pot if we can, otherwise call
-        const betAmount = this.findBetAmount(actions, Math.round(pot * 0.4))
+        const betAmount = this.findBetAmount(actions, Math.round(pot * 0.4), chipDenom)
         if (betAmount !== null) return betAmount
         if (actions.find((a) => a.type === 'CALL')) return { type: 'CALL' }
         if (actions.find((a) => a.type === 'CHECK')) return { type: 'CHECK' }
@@ -133,28 +152,40 @@ export class TagBotStrategy implements BotStrategy {
   }
 
   /**
-   * Find a BET action with an amount clamped to the available range.
+   * Find a BET action with an amount clamped to the available range
+   * and aligned to the chip denomination (for tournaments).
    */
   private findBetAmount(
     actions: ActionOption[],
-    targetAmount: number
+    targetAmount: number,
+    chipDenom = 1
   ): { type: ActionType; amount: number } | null {
     const bet = actions.find((a) => a.type === 'BET')
     if (!bet || bet.min === undefined || bet.max === undefined) return null
-    const amount = Math.max(bet.min, Math.min(targetAmount, bet.max))
+    let amount = Math.max(bet.min, Math.min(targetAmount, bet.max))
+    if (chipDenom > 1) {
+      amount = Math.floor(amount / chipDenom) * chipDenom
+      if (amount < bet.min) return null // rounding pushed below min
+    }
     return { type: 'BET', amount }
   }
 
   /**
-   * Find a RAISE action with an amount clamped to the available range.
+   * Find a RAISE action with an amount clamped to the available range
+   * and aligned to the chip denomination (for tournaments).
    */
   private findRaiseAmount(
     actions: ActionOption[],
-    targetAmount: number
+    targetAmount: number,
+    chipDenom = 1
   ): { type: ActionType; amount: number } | null {
     const raise = actions.find((a) => a.type === 'RAISE')
     if (!raise || raise.min === undefined || raise.max === undefined) return null
-    const amount = Math.max(raise.min, Math.min(targetAmount, raise.max))
+    let amount = Math.max(raise.min, Math.min(targetAmount, raise.max))
+    if (chipDenom > 1) {
+      amount = Math.floor(amount / chipDenom) * chipDenom
+      if (amount < raise.min) return null // rounding pushed below min
+    }
     return { type: 'RAISE', amount }
   }
 

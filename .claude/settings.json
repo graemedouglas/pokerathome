@@ -18,7 +18,9 @@
       "Bash(wc -l:*)",
       "Bash(find:*)",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k: \\(v if k != ''events'' else f''[{len\\(v\\)} events]''\\) for k,v in d.items\\(\\)}, indent=2\\)\\)\")",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(netstat -ano)",
+      "Bash(tasklist //FI \"PID eq 33340\")"
     ],
     "additionalDirectories": [
       "\\tmp"

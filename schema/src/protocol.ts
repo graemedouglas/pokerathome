@@ -558,6 +558,11 @@ export const SetSittingOutMessage = z.object({
   payload: SetSittingOutPayload,
 });
 
+export const StartGameMessage = z.object({
+  action: z.literal('startGame'),
+  payload: z.object({}).strict(),
+});
+
 /** Discriminated union of all client-to-server messages */
 export const ClientMessage = z.discriminatedUnion('action', [
   IdentifyMessage,
@@ -571,6 +576,7 @@ export const ClientMessage = z.discriminatedUnion('action', [
   ReplayControlMessage,
   ReplayCardVisibilityMessage,
   SetSittingOutMessage,
+  StartGameMessage,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -626,6 +632,18 @@ export const BlindWarningServerMessage = z.object({
   payload: BlindWarningPayload,
 });
 
+export const LobbyUpdateServerMessage = z.object({
+  action: z.literal('lobbyUpdate'),
+  payload: z.object({
+    players: z.array(z.object({
+      id: z.string(),
+      displayName: z.string(),
+      isReady: z.boolean(),
+    })),
+    canStart: z.boolean(),
+  }),
+});
+
 /** Union of all server-to-client messages */
 export const ServerMessage = z.discriminatedUnion('action', [
   IdentifiedServerMessage,
@@ -638,5 +656,6 @@ export const ServerMessage = z.discriminatedUnion('action', [
   ErrorServerMessage,
   ReplayStateServerMessage,
   BlindWarningServerMessage,
+  LobbyUpdateServerMessage,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

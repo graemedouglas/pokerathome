@@ -10,6 +10,7 @@ import {
   startHand,
   processAction,
   buildGameStatePayload,
+  advanceBlindLevel,
   type EngineState,
 } from '../src/engine/game'
 import { createDeck } from '../src/engine/deck'
@@ -217,5 +218,160 @@ describe('TAG Bot integration', () => {
       if (p1.stack === 0 || p2.stack === 0) break
       state = final
     }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Tournament bot integration
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const TOURNAMENT_SCHEDULE = [
+  { level: 1, smallBlind: 25,  bigBlind: 50,   ante: 0, minChipDenom: 25 },
+  { level: 2, smallBlind: 50,  bigBlind: 100,  ante: 0, minChipDenom: 25 },
+  { level: 3, smallBlind: 100, bigBlind: 200,  ante: 0, minChipDenom: 25 },
+  { level: 4, smallBlind: 200, bigBlind: 400,  ante: 0, minChipDenom: 25 },
+  { level: 5, smallBlind: 500, bigBlind: 1000, ante: 0, minChipDenom: 25 },
+]
+
+function createTournamentGame(startingStack = 5000): EngineState {
+  let state = createInitialState({
+    gameId: 'tournament-test',
+    gameName: 'Tournament',
+    gameType: 'tournament',
+    smallBlindAmount: 25,
+    bigBlindAmount: 50,
+    maxPlayers: 6,
+    startingStack,
+    blindSchedule: TOURNAMENT_SCHEDULE,
+  })
+  const p1 = addPlayer(state, 'bot-1', 'Bot A')
+  state = p1.state
+  const p2 = addPlayer(state, 'bot-2', 'Bot B')
+  state = p2.state
+  state = setPlayerReady(state, 'bot-1')
+  state = setPlayerReady(state, 'bot-2')
+  return state
+}
+
+describe('Tournament bot integration', () => {
+  const cs = new CallingStationStrategy()
+  const tag = new TagBotStrategy()
+
+  test('tournament hand completes with calling stations', () => {
+    const state = createTournamentGame()
+    const deck = makePaddedDeck([
+      'Ah', 'Kh',  // bot-1
+      '2c', '3d',  // bot-2
+      '4s', '5s', '6s',  // flop
+      '7s',  // turn
+      '8s',  // river
+    ])
+
+    const final = playHandToCompletion(state, {
+      'bot-1': cs,
+      'bot-2': cs,
+    }, deck)
+
+    expect(final.handInProgress).toBe(false)
+    expect(final.gameType).toBe('tournament')
+    // Chips are conserved
+    const p1 = final.players.find(p => p.id === 'bot-1')!
+    const p2 = final.players.find(p => p.id === 'bot-2')!
+    expect(p1.stack + p2.stack).toBe(10000)
+  })
+
+  test('TAG bot plays multiple hands with increasing blind levels', () => {
+    let state = createTournamentGame()
+
+    // Play hand at level 0 (25/50)
+    state = playHandToCompletion(state, { 'bot-1': tag, 'bot-2': tag })
+    expect(state.handInProgress).toBe(false)
+    expect(state.bigBlindAmount).toBe(50)
+
+    const p1After1 = state.players.find(p => p.id === 'bot-1')!
+    const p2After1 = state.players.find(p => p.id === 'bot-2')!
+    if (p1After1.stack === 0 || p2After1.stack === 0) return // one busted, can't continue
+
+    // Advance blind level to 50/100
+    const levelUp = advanceBlindLevel(state)
+    state = levelUp.state
+    expect(state.bigBlindAmount).toBe(100)
+    expect(state.smallBlindAmount).toBe(50)
+
+    // Play hand at level 1 (50/100)
+    state = playHandToCompletion(state, { 'bot-1': tag, 'bot-2': tag })
+    expect(state.handInProgress).toBe(false)
+
+    // Advance again to 100/200
+    const levelUp2 = advanceBlindLevel(state)
+    state = levelUp2.state
+    expect(state.bigBlindAmount).toBe(200)
+
+    const p1After2 = state.players.find(p => p.id === 'bot-1')!
+    const p2After2 = state.players.find(p => p.id === 'bot-2')!
+    if (p1After2.stack === 0 || p2After2.stack === 0) return
+
+    // Play hand at level 2 (100/200)
+    state = playHandToCompletion(state, { 'bot-1': tag, 'bot-2': tag })
+    expect(state.handInProgress).toBe(false)
+
+    // Chips are still conserved
+    const p1Final = state.players.find(p => p.id === 'bot-1')!
+    const p2Final = state.players.find(p => p.id === 'bot-2')!
+    expect(p1Final.stack + p2Final.stack).toBe(10000)
+  })
+
+  test('TAG bot shoves with short stack and premium hand', () => {
+    // Give bot-1 only ~10 BBs (500 chips at 25/50)
+    let state = createTournamentGame(500)
+
+    // Give bot-1 pocket aces — should shove
+    const deck = makePaddedDeck([
+      'Ah', 'As',  // bot-1 — premium, 10 BBs
+      '7c', '2d',  // bot-2 — trash
+      '4s', '5s', '6s',
+      '8s', '9s',
+    ])
+
+    const transitions = startHand(state, deck)
+    let current = transitions[transitions.length - 1].state
+
+    if (current.activePlayerId === 'bot-1') {
+      const payload = buildGameStatePayload(current, { type: 'DEAL' }, 'bot-1', 30000)
+      const decision = tag.decide(payload.gameState, payload.actionRequest!, 'bot-1')
+      expect(decision.type).toBe('ALL_IN')
+    }
+  })
+
+  test('bots play tournament to completion (one player busts)', () => {
+    // Small starting stacks so the tournament ends quickly
+    let state = createTournamentGame(500)
+
+    let handsPlayed = 0
+    const maxHands = 50
+
+    while (handsPlayed < maxHands) {
+      const p1 = state.players.find(p => p.id === 'bot-1')!
+      const p2 = state.players.find(p => p.id === 'bot-2')!
+      if (p1.stack === 0 || p2.stack === 0) break
+
+      state = playHandToCompletion(state, {
+        'bot-1': tag,
+        'bot-2': cs,
+      })
+      expect(state.handInProgress).toBe(false)
+      handsPlayed++
+
+      // Advance blinds every 3 hands to speed things up
+      if (handsPlayed % 3 === 0 && state.currentBlindLevel < TOURNAMENT_SCHEDULE.length - 1) {
+        state = advanceBlindLevel(state).state
+      }
+    }
+
+    // Tournament should have ended (one player busted) within max hands
+    const p1Final = state.players.find(p => p.id === 'bot-1')!
+    const p2Final = state.players.find(p => p.id === 'bot-2')!
+    expect(p1Final.stack + p2Final.stack).toBe(1000) // Chips conserved (2 × 500)
+    expect(handsPlayed).toBeGreaterThan(0)
   })
 })

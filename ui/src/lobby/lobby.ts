@@ -26,6 +26,8 @@ export class Lobby {
   private handHistory?: ServerEvent[]
   private currentScreen: LobbyScreen = 'connect'
   private removeMessageHandler?: () => void
+  private lobbyPlayerList: HTMLElement | null = null
+  private lobbyStartBtn: HTMLElement | null = null
 
   constructor(ws: WsClient) {
     this.ws = ws
@@ -239,9 +241,22 @@ export class Lobby {
     const readyBtn = el('button', 'lobby-btn lobby-btn-primary')
     readyBtn.textContent = 'Ready!'
     readyBtn.addEventListener('click', () => {
-      readyBtn.textContent = 'Waiting for others...'
+      readyBtn.textContent = 'Ready'
       readyBtn.setAttribute('disabled', 'true')
       this.ws.send('ready', {})
+    })
+
+    // Player list (updated by lobbyUpdate messages)
+    this.lobbyPlayerList = el('div', 'lobby-player-list')
+
+    // Start Game button (shown when canStart is true)
+    this.lobbyStartBtn = el('button', 'lobby-btn lobby-btn-start')
+    this.lobbyStartBtn.textContent = 'Start Game'
+    this.lobbyStartBtn.style.display = 'none'
+    this.lobbyStartBtn.addEventListener('click', () => {
+      this.lobbyStartBtn!.textContent = 'Starting...'
+      this.lobbyStartBtn!.setAttribute('disabled', 'true')
+      this.ws.send('startGame', {})
     })
 
     const leaveBtn = el('button', 'lobby-btn lobby-btn-secondary')
@@ -251,8 +266,32 @@ export class Lobby {
       this.ws.send('listGames', {})
     })
 
-    container.append(title, subtitle, readyBtn, leaveBtn)
+    container.append(title, subtitle, readyBtn, this.lobbyPlayerList, this.lobbyStartBtn, leaveBtn)
     this.setContent(container)
+  }
+
+  private updateLobbyPlayers(
+    players: Array<{ id: string; displayName: string; isReady: boolean }>,
+    canStart: boolean
+  ): void {
+    if (!this.lobbyPlayerList) return
+
+    this.lobbyPlayerList.innerHTML = ''
+    for (const p of players) {
+      const row = el('div', 'lobby-player-row')
+      const name = el('span', 'lobby-player-name')
+      name.textContent = p.displayName
+      const status = el('span', p.isReady ? 'lobby-player-ready' : 'lobby-player-waiting')
+      status.textContent = p.isReady ? 'Ready' : 'Waiting'
+      row.append(name, status)
+      this.lobbyPlayerList.appendChild(row)
+    }
+
+    if (this.lobbyStartBtn) {
+      this.lobbyStartBtn.style.display = canStart ? '' : 'none'
+      this.lobbyStartBtn.textContent = 'Start Game'
+      this.lobbyStartBtn.removeAttribute('disabled')
+    }
   }
 
   private handleMessage(msg: ServerMessage): void {
@@ -300,6 +339,15 @@ export class Lobby {
         if (eventType && eventType !== 'PLAYER_JOINED' && eventType !== 'PLAYER_LEFT') {
           this.finish(gsPayload)
         }
+        break
+      }
+
+      case 'lobbyUpdate': {
+        const payload = msg.payload as {
+          players: Array<{ id: string; displayName: string; isReady: boolean }>
+          canStart: boolean
+        }
+        this.updateLobbyPlayers(payload.players, payload.canStart)
         break
       }
 
@@ -566,5 +614,39 @@ const LOBBY_STYLES = `<style>
   }
   .lobby-btn-spectate:hover:not(:disabled) {
     background: #5d4d80;
+  }
+  .lobby-btn-start {
+    background: #16a34a;
+    color: #fff;
+  }
+  .lobby-btn-start:hover:not(:disabled) {
+    background: #22c55e;
+  }
+  .lobby-player-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 4px 0;
+  }
+  .lobby-player-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;
+    background: #1a1a3a;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .lobby-player-name {
+    color: #e0e0e0;
+  }
+  .lobby-player-ready {
+    color: #4ade80;
+    font-weight: bold;
+    font-size: 12px;
+  }
+  .lobby-player-waiting {
+    color: #777799;
+    font-size: 12px;
   }
 </style>`

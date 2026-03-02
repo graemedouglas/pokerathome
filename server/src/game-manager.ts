@@ -325,26 +325,56 @@ export class GameManager {
     active.state = setPlayerReady(active.state, playerId);
   }
 
-  /** Try to auto-start the game if enough players are ready. */
-  tryStartGame(gameId: string, sessions: SessionManager): void {
+  /** Broadcast lobby state (player list + ready status) to all players in the game. */
+  broadcastLobbyState(gameId: string, sessions: SessionManager): void {
     const active = this.activeGames.get(gameId);
-    if (!active) return;
-    if (active.state.handInProgress) return;
+    if (!active || active.state.handInProgress) return;
 
-    const readyPlayers = active.state.players.filter(
-      (p) => p.role === 'player' && p.isReady && p.stack > 0
-    );
+    const players = active.state.players
+      .filter((p) => p.role === 'player')
+      .map((p) => ({ id: p.id, displayName: p.displayName, isReady: p.isReady }));
 
-    if (readyPlayers.length >= config.MIN_PLAYERS_TO_START) {
-      this.initializeTournament(active, readyPlayers);
-      updateGameStatus(gameId, 'in_progress');
-      this.startNextHand(gameId, sessions);
+    const allReady = players.length >= 2 && players.every((p) => p.isReady);
 
-      // Start blind timer after the first hand begins (for tournaments)
-      if (active.state.gameType === 'tournament' && active.tournamentConfig) {
-        this.startBlindTimer(gameId, sessions);
-      }
+    sessions.broadcast(gameId, {
+      action: 'lobbyUpdate',
+      payload: { players, canStart: allReady && config.PLAYER_CAN_START_GAME },
+    });
+  }
+
+  /** Player-initiated game start. Requires all players to be ready and config to allow it. */
+  playerStartGame(
+    gameId: string,
+    playerId: string,
+    sessions: SessionManager
+  ): { ok: boolean; error?: string } {
+    if (!config.PLAYER_CAN_START_GAME) {
+      return { ok: false, error: 'Player-initiated start is disabled' };
     }
+
+    const active = this.activeGames.get(gameId);
+    if (!active) return { ok: false, error: 'Game not found' };
+    if (active.state.handInProgress) return { ok: false, error: 'Game already in progress' };
+
+    const players = active.state.players.filter((p) => p.role === 'player' && p.stack > 0);
+    if (players.length < 2) return { ok: false, error: 'Not enough players' };
+    if (!players.every((p) => p.isReady)) return { ok: false, error: 'Not all players are ready' };
+
+    // Verify the requester is a player in the game
+    const requester = active.state.players.find((p) => p.id === playerId);
+    if (!requester || requester.role !== 'player') {
+      return { ok: false, error: 'Only players can start the game' };
+    }
+
+    this.initializeTournament(active, players);
+    updateGameStatus(gameId, 'in_progress');
+    this.startNextHand(gameId, sessions);
+
+    if (active.state.gameType === 'tournament' && active.tournamentConfig) {
+      this.startBlindTimer(gameId, sessions);
+    }
+
+    return { ok: true };
   }
 
   /** Force-start a game (admin action). */
@@ -380,7 +410,7 @@ export class GameManager {
     return true;
   }
 
-  /** Generate blind schedule and set up tournament state (shared by tryStartGame and forceStartGame). */
+  /** Generate blind schedule and set up tournament state (shared by start methods). */
   private initializeTournament(active: ActiveGame, players: { id: string }[]): void {
     if (active.state.gameType !== 'tournament' || !active.tournamentConfig) return;
 

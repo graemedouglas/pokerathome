@@ -18,6 +18,9 @@ export class BotClient {
   private stopped = false
   private options: BotClientOptions
   private log: Pick<Console, 'info' | 'warn' | 'error'>
+  /** Saved for error recovery: retry with CHECK/FOLD if server rejects an action */
+  private lastActionRequest: ActionRequest | null = null
+  private lastHandNumber: number | null = null
 
   constructor(options: BotClientOptions) {
     this.options = options
@@ -113,6 +116,7 @@ export class BotClient {
         break
       case 'error':
         this.log.warn('Server error:', msg.payload)
+        this.retryWithFallback()
         break
       case 'timeWarning':
         break
@@ -140,10 +144,34 @@ export class BotClient {
 
   private handleGameState(payload: {
     gameState: GameState
-    event: { type: string }
+    event: { type: string; playerId?: string; sittingOut?: boolean }
     actionRequest?: ActionRequest
   }): void {
+    // If bot was sat out (e.g., timeout), immediately come back
+    if (
+      payload.event.type === 'PLAYER_SITTING_OUT' &&
+      payload.event.playerId === this.playerId &&
+      payload.event.sittingOut === true
+    ) {
+      this.log.warn('Bot was sat out, sending sit-back-in')
+      this.send({ action: 'setSittingOut', payload: { sittingOut: false } })
+      return
+    }
+
+    if (
+      payload.event.type === 'PLAYER_TIMEOUT' &&
+      payload.event.playerId === this.playerId
+    ) {
+      this.log.warn('Bot timed out, sending sit-back-in')
+      this.send({ action: 'setSittingOut', payload: { sittingOut: false } })
+      return
+    }
+
     if (!payload.actionRequest || !this.playerId) return
+
+    // Save for error recovery before acting
+    this.lastActionRequest = payload.actionRequest
+    this.lastHandNumber = payload.gameState.handNumber
 
     const decision = this.options.strategy.decide(
       payload.gameState,
@@ -162,6 +190,20 @@ export class BotClient {
         type: decision.type,
         ...(decision.amount !== undefined ? { amount: decision.amount } : {}),
       },
+    })
+  }
+
+  /** If the server rejected our action, retry with CHECK (if available) or FOLD. */
+  private retryWithFallback(): void {
+    if (!this.lastActionRequest || this.lastHandNumber == null) return
+    const ar = this.lastActionRequest
+    this.lastActionRequest = null // clear to prevent infinite retry loops
+    const hasCheck = ar.availableActions.some((a) => a.type === 'CHECK')
+    const fallbackType = hasCheck ? 'CHECK' : 'FOLD'
+    this.log.warn(`Retrying with fallback action: ${fallbackType}`)
+    this.send({
+      action: 'playerAction',
+      payload: { handNumber: this.lastHandNumber, type: fallbackType },
     })
   }
 

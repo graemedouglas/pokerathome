@@ -16,6 +16,9 @@ const envSchema = z.object({
   /** Minimum number of ready players to start a game */
   MIN_PLAYERS_TO_START: z.coerce.number().int().min(2).default(2),
 
+  /** Whether players (non-admin) can start a game when all players are ready */
+  PLAYER_CAN_START_GAME: z.coerce.boolean().default(true),
+
   /** Spectator card visibility mode */
   SPECTATOR_CARD_VISIBILITY: z.enum(['immediate', 'delayed', 'showdown']).default('showdown'),
 

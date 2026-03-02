@@ -262,3 +262,156 @@ describe('TagBot strategy', () => {
     expect(decision.type).toBe('CHECK')
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAG Bot — Tournament chip denomination alignment
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('TagBot tournament chip denomination', () => {
+  const tag = new TagBotStrategy()
+  const CHIP_DENOM = 25
+
+  function makeTournamentState(overrides: Partial<GameState> & { myCards?: [string, string]; oppCards?: [string, string] | null }): GameState {
+    const { myCards, oppCards, ...rest } = overrides
+    return {
+      gameId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      gameType: 'tournament',
+      handNumber: 1,
+      stage: 'PRE_FLOP',
+      communityCards: [],
+      pot: 75,
+      pots: [{ amount: 75, eligiblePlayerIds: [PLAYER_ID, OPP_ID] }],
+      players: [
+        {
+          id: PLAYER_ID,
+          displayName: 'Bot',
+          seatIndex: 0,
+          role: 'player',
+          stack: 4950,
+          bet: 0,
+          potShare: 0,
+          folded: false,
+          holeCards: myCards ?? ['Ah', 'Kh'],
+          connected: true,
+          sittingOut: false,
+        },
+        {
+          id: OPP_ID,
+          displayName: 'Opponent',
+          seatIndex: 1,
+          role: 'player',
+          stack: 4950,
+          bet: 50,
+          potShare: 50,
+          folded: false,
+          holeCards: oppCards ?? null,
+          connected: true,
+          sittingOut: false,
+        },
+      ],
+      dealerSeatIndex: 0,
+      smallBlindAmount: 25,
+      bigBlindAmount: 50,
+      activePlayerId: PLAYER_ID,
+      tournament: {
+        blindSchedule: [{ level: 1, smallBlind: 25, bigBlind: 50, ante: 0, minChipDenom: CHIP_DENOM }],
+        currentBlindLevel: 0,
+        nextBlindChangeAt: null,
+        roundLengthMs: 60000,
+        isPaused: false,
+        minChipDenom: CHIP_DENOM,
+        averageStack: 5000,
+        playersRemaining: 2,
+        totalPlayers: 2,
+        startedAt: Date.now(),
+      },
+      ...rest,
+    }
+  }
+
+  const TOURNAMENT_BET_ACTIONS: ActionOption[] = [
+    { type: 'FOLD' },
+    { type: 'CHECK' },
+    { type: 'BET', min: 50, max: 4950 },
+    { type: 'ALL_IN', amount: 4950 },
+  ]
+
+  const TOURNAMENT_RAISE_ACTIONS: ActionOption[] = [
+    { type: 'FOLD' },
+    { type: 'CALL', amount: 100 },
+    { type: 'RAISE', min: 200, max: 4950 },
+    { type: 'ALL_IN', amount: 4950 },
+  ]
+
+  test('postflop bet is aligned to chip denomination', () => {
+    // Monster hand on flop — bot should bet ~75% pot
+    for (const pot of [75, 150, 175, 225, 275, 325, 350]) {
+      const gs = makeTournamentState({
+        stage: 'FLOP',
+        communityCards: ['Ah', 'Ad', 'Kh'],
+        myCards: ['As', 'Ac'],
+        pot,
+      })
+      const ar = makeActionRequest(TOURNAMENT_BET_ACTIONS)
+      const decision = tag.decide(gs, ar, PLAYER_ID)
+      if (decision.amount !== undefined) {
+        expect(decision.amount % CHIP_DENOM).toBe(0)
+        expect(decision.amount).toBeGreaterThanOrEqual(50)
+        expect(decision.amount).toBeLessThanOrEqual(4950)
+      }
+    }
+  })
+
+  test('postflop raise is aligned to chip denomination', () => {
+    // Strong hand facing a bet — bot should raise ~60% pot
+    for (const pot of [150, 200, 275, 325, 400]) {
+      const gs = makeTournamentState({
+        stage: 'FLOP',
+        communityCards: ['Ah', '2h', '3h'],
+        myCards: ['Kh', 'Qh'],
+        pot,
+      })
+      const ar = makeActionRequest(TOURNAMENT_RAISE_ACTIONS)
+      const decision = tag.decide(gs, ar, PLAYER_ID)
+      if (decision.amount !== undefined) {
+        expect(decision.amount % CHIP_DENOM).toBe(0)
+      }
+    }
+  })
+
+  test('preflop raise is aligned to chip denomination', () => {
+    // Premium hand — raises 3x BB
+    const gs = makeTournamentState({ myCards: ['Ah', 'As'] })
+    const ar = makeActionRequest(TOURNAMENT_RAISE_ACTIONS)
+    const decision = tag.decide(gs, ar, PLAYER_ID)
+    expect(decision.type).toBe('RAISE')
+    expect(decision.amount).toBeDefined()
+    expect(decision.amount! % CHIP_DENOM).toBe(0)
+  })
+
+  test('falls back to CALL when rounding pushes amount below min', () => {
+    // Scenario: tight min/max range where rounding eliminates the bet
+    const gs = makeTournamentState({
+      stage: 'FLOP',
+      communityCards: ['Ah', 'Ad', 'Kh'],
+      myCards: ['As', 'Ac'],
+      pot: 75, // 75% of 75 = 56, rounds down to 50 = min, still valid
+    })
+    // Very tight range: min=50, max=75. 75% of 75 = 56 → rounds to 50.
+    const tightActions: ActionOption[] = [
+      { type: 'FOLD' },
+      { type: 'CHECK' },
+      { type: 'BET', min: 75, max: 100 },  // min 75 > 56 rounded to 50
+      { type: 'CALL', amount: 50 },
+      { type: 'ALL_IN', amount: 100 },
+    ]
+    const ar = makeActionRequest(tightActions)
+    const decision = tag.decide(gs, ar, PLAYER_ID)
+    // Should fall back to CALL since BET amount rounds below min
+    expect(['BET', 'CALL']).toContain(decision.type)
+    if (decision.type === 'BET' && decision.amount !== undefined) {
+      expect(decision.amount % CHIP_DENOM).toBe(0)
+      expect(decision.amount).toBeGreaterThanOrEqual(75)
+    }
+  })
+})

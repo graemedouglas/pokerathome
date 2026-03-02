@@ -19,7 +19,9 @@
       "Bash(pnpm --filter @pokerathome/server build:*)",
       "Bash(pnpm --filter @pokerathome/ui build:*)",
       "Bash(curl:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(taskkill //F //PID 33340)",
+      "Bash(echo \"exit: $?\")"
     ]
   },
   "autoUpdatesChannel": "latest"

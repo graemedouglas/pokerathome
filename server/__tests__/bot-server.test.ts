@@ -5,7 +5,7 @@
  * adds bots, and verifies they connect, join, and play.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, execSync, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
 
@@ -40,6 +40,16 @@ function cleanDb() {
 beforeAll(async () => {
   cleanDb()
 
+  // Kill any leftover server from a previous crashed test run (Windows-specific)
+  if (process.platform === 'win32') {
+    try {
+      execSync(
+        `for /f "tokens=5" %a in ('netstat -ano ^| findstr :${TEST_PORT} ^| findstr LISTENING') do taskkill /F /PID %a`,
+        { stdio: 'ignore', shell: true }
+      )
+    } catch { /* nothing listening — expected */ }
+  }
+
   server = spawn('npx', ['tsx', 'src/index.ts'], {
     cwd: path.resolve(__dirname, '..'),
     env: {
@@ -70,10 +80,15 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (server && !server.killed) {
-    server.kill('SIGTERM')
+    if (process.platform === 'win32') {
+      // On Windows, shell:true creates a process tree; SIGTERM only kills the shell wrapper
+      spawn('taskkill', ['/F', '/T', '/PID', String(server.pid)], { stdio: 'ignore' })
+    } else {
+      server.kill('SIGTERM')
+    }
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
-        server.kill('SIGKILL')
+        if (process.platform !== 'win32') server.kill('SIGKILL')
         resolve()
       }, 3000)
       server.on('exit', () => {
@@ -83,7 +98,7 @@ afterAll(async () => {
     })
   }
   // Small delay to let file handles close before cleanup
-  await sleep(200)
+  await sleep(500)
   cleanDb()
 })
 
@@ -104,10 +119,17 @@ async function createGame(): Promise<string> {
   return game.id
 }
 
-async function getGame(gameId: string): Promise<{ players: Array<{ player_id: string }> }> {
+async function getGame(gameId: string): Promise<{ players: Array<{ player_id: string }>; status: string }> {
   const res = await fetch(`${SERVER_URL}/api/games/${gameId}`)
   expect(res.status).toBe(200)
   return res.json()
+}
+
+async function startGame(gameId: string): Promise<void> {
+  const res = await fetch(`${SERVER_URL}/api/games/${gameId}/start`, {
+    method: 'POST',
+  })
+  expect(res.status).toBe(200)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -174,7 +196,34 @@ describe('Add bot via admin API', () => {
     expect(game.players.length).toBe(1)
   })
 
-  test('two bots trigger auto-start and play at least one hand', async () => {
+  test('game does not auto-start when two bots ready up', async () => {
+    const gameId = await createGame()
+
+    // Add two bots — they auto-ready on join
+    const res1 = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botType: 'calling-station' }),
+    })
+    expect(res1.status).toBe(201)
+
+    const res2 = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botType: 'tag-bot' }),
+    })
+    expect(res2.status).toBe(201)
+
+    // Wait for bots to connect, join, and ready up
+    await sleep(2000)
+
+    // Game should still be in waiting status — no auto-start
+    const game = await getGame(gameId)
+    expect(game.players.length).toBe(2)
+    expect(game.status).toBe('waiting')
+  })
+
+  test('two bots play after admin starts game', async () => {
     const gameId = await createGame()
 
     // Add two bots
@@ -192,20 +241,72 @@ describe('Add bot via admin API', () => {
     })
     expect(res2.status).toBe(201)
 
-    // Verify both bots are in the game
+    // Wait for bots to join, then start via admin API
     await sleep(1000)
     const game = await getGame(gameId)
     expect(game.players.length).toBe(2)
 
-    // Wait for the game to start and play through at least one hand.
-    // HAND_DELAY_MS is 500ms, action timeout is 30s but bots respond instantly.
-    // A full hand (blinds + a few actions) should complete within a few seconds.
+    await startGame(gameId)
+
+    // Wait for at least one hand to complete
     await sleep(4000)
 
-    // The game should now be in_progress (or completed if one bot busted)
     const res = await fetch(`${SERVER_URL}/api/games/${gameId}`)
     expect(res.status).toBe(200)
     const updated = await res.json()
+    expect(['in_progress', 'completed']).toContain(updated.status)
+  }, 15000)
+})
+
+describe('Tournament bot game', () => {
+  test('two bots play a tournament game after admin start', async () => {
+    // Create a tournament game
+    const res = await fetch(`${SERVER_URL}/api/games`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Tournament Bot Test',
+        gameType: 'tournament',
+        smallBlind: 25,
+        bigBlind: 50,
+        maxPlayers: 6,
+        startingStack: 5000,
+        tournamentLengthHours: 0.25,
+        roundLengthMinutes: 1,
+      }),
+    })
+    expect(res.status).toBe(201)
+    const game = await res.json()
+    const gameId = game.id
+
+    // Add two bots
+    const res1 = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botType: 'tag-bot', displayName: 'TAG Tourney' }),
+    })
+    expect(res1.status).toBe(201)
+
+    const res2 = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botType: 'calling-station', displayName: 'CS Tourney' }),
+    })
+    expect(res2.status).toBe(201)
+
+    // Verify both bots joined, then start via admin API
+    await sleep(1000)
+    const gameData = await getGame(gameId)
+    expect(gameData.players.length).toBe(2)
+
+    await startGame(gameId)
+
+    // Wait for at least one hand to complete
+    await sleep(4000)
+
+    const statusRes = await fetch(`${SERVER_URL}/api/games/${gameId}`)
+    expect(statusRes.status).toBe(200)
+    const updated = await statusRes.json()
     expect(['in_progress', 'completed']).toContain(updated.status)
   }, 15000)
 })
