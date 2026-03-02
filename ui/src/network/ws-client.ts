@@ -82,7 +82,7 @@ export class WsClient {
 
   send(action: string, payload: Record<string, unknown>): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('Cannot send: WebSocket not connected')
+      console.warn(`[WsClient] Cannot send '${action}': WebSocket not connected (readyState=${this.ws?.readyState})`)
       return
     }
     this.ws.send(JSON.stringify({ action, payload }))

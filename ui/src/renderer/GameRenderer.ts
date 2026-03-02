@@ -442,17 +442,16 @@ export class GameRenderer {
       this.winnerBanner.visible = false;
     }
 
-    // Sync sit-out button state from server (e.g. timeout sets sittingOut server-side)
-    if (this.sitOutButton && this.sitOutButtonText) {
-      const humanPlayer = state.players.find(p => p.isHuman);
-      if (humanPlayer && humanPlayer.isSittingOut !== this.isSittingOut) {
-        this.isSittingOut = humanPlayer.isSittingOut;
-        this.sitOutButtonText.text = this.isSittingOut ? "I'm Back" : 'Sit Out';
-      }
-    }
-
     // Update spectator panel
     this.spectatorPanel.update(state.spectators);
+  }
+
+  /** Update sit-out button state (called only from explicit server events, not every update) */
+  setSitOutState(sittingOut: boolean): void {
+    this.isSittingOut = sittingOut;
+    if (this.sitOutButtonText) {
+      this.sitOutButtonText.text = sittingOut ? "I'm Back" : 'Sit Out';
+    }
   }
 
   /** Animate community card reveal (called by Game instead of direct state update) */

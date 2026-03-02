@@ -523,7 +523,26 @@ export class GameManager {
     if (!active || !active.state.handInProgress) return;
 
     const activePlayer = active.state.players.find(p => p.id === active.state.activePlayerId);
-    if (!activePlayer || !activePlayer.sittingOut) return;
+    if (!activePlayer) return;
+
+    if (!activePlayer.sittingOut) {
+      // Player returned between scheduling and execution.
+      // Start their action timer and re-broadcast so they receive an actionRequest.
+      this.startActionTimer(gameId, activePlayer.id, sessions);
+      const overrides = this.getTournamentOverrides(active);
+      sessions.broadcastPersonalized(gameId, (viewerId) => ({
+        action: 'gameState',
+        payload: buildGameStatePayload(
+          active.state,
+          { type: 'PLAYER_SITTING_OUT', playerId: activePlayer.id, sittingOut: false } as Event,
+          viewerId,
+          viewerId === activePlayer.id ? config.ACTION_TIMEOUT_MS : undefined,
+          active.spectatorVisibility,
+          overrides
+        ),
+      }));
+      return;
+    }
 
     // Active player is sitting out — check if possible, else fold
     this.clearTimers(active);
@@ -769,6 +788,7 @@ export class GameManager {
       if (activePlayer?.sittingOut) {
         // Schedule auto-fold on next tick to avoid deep recursion
         setTimeout(() => this.autoFoldSittingOutPlayers(gameId, sessions), 0);
+        saveGameSnapshot(gameId, active.state);
         return;
       }
       // Start action timer for the active player
@@ -1057,10 +1077,13 @@ export class GameManager {
 
     active.state = engineSetSittingOut(active.state, playerId, sittingOut);
 
-    // Broadcast updated state — never send actionTimeout here.
-    // The action timer is managed by startActionTimer / applyTransitions.
-    // Sending a fresh actionTimeout would reset the active player's client-side timer
-    // while the server timer keeps counting, causing a timer desync.
+    // Broadcast updated state.
+    // When the player returns mid-hand as the active player, include actionRequest
+    // so they can act (the earlier broadcast from applyTransitions omitted it because
+    // they were sitting out at the time).
+    const isReturningAsActive = !sittingOut
+      && active.state.handInProgress
+      && active.state.activePlayerId === playerId;
     const overrides = this.getTournamentOverrides(active);
     const sittingOutEvent = { type: 'PLAYER_SITTING_OUT', playerId, sittingOut } as Event;
     sessions.broadcastPersonalized(gameId, (viewerId) => ({
@@ -1069,11 +1092,16 @@ export class GameManager {
         active.state,
         sittingOutEvent,
         viewerId,
-        undefined,
+        isReturningAsActive && viewerId === playerId ? config.ACTION_TIMEOUT_MS : undefined,
         active.spectatorVisibility,
         overrides
       ),
     }));
+
+    // Start action timer if returning as the active player
+    if (isReturningAsActive) {
+      this.startActionTimer(gameId, playerId, sessions);
+    }
 
     // Record in replay so sit-out transitions are visible when debugging
     active.recorder?.recordEvent(sittingOutEvent, active.state);
