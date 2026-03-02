@@ -210,24 +210,28 @@ describe('sit-out auto-action', () => {
     expect(updatedPlayer.sittingOut).toBe(true);
   });
 
-  test('subsequent turns after sitting out → always FOLD (regression)', () => {
+  test('sitting-out player checks when possible, folds when facing a bet', () => {
     let state = startTournamentHand();
 
-    // Set up: player-1 is sitting out from a previous hand
+    // Set up: player-1 is sitting out
     state = setPlayerSittingOut(state, 'player-1', true);
 
-    // Find the active player — if it's the sitting-out player, verify FOLD is used
-    // (not check, even if they could check)
     const activeId = state.activePlayerId!;
 
     if (activeId === 'player-1') {
-      // This simulates autoFoldSittingOutPlayers behavior: always FOLD
-      const transitions = processAction(state, activeId, 'FOLD');
+      // player-1 is active — check-or-fold based on bet
+      const canCheck = state.players.find(p => p.id === activeId)!.bet >= state.currentBet;
+      const action = canCheck ? 'CHECK' : 'FOLD';
+      const transitions = processAction(state, activeId, action);
       const finalState = transitions[transitions.length - 1].state;
       const player = finalState.players.find(p => p.id === 'player-1')!;
-      expect(player.folded).toBe(true);
+      if (canCheck) {
+        expect(player.folded).toBe(false); // checked, still in hand
+      } else {
+        expect(player.folded).toBe(true); // folded because facing bet
+      }
     } else {
-      // player-2 is active first; have them act, then player-1 should auto-fold
+      // player-2 is active first; have them act, then player-1 should check-or-fold
       const p2Player = state.players.find(p => p.id === activeId)!;
       const p2Action = p2Player.bet >= state.currentBet ? 'CHECK' : 'CALL';
       const transitions = processAction(state, activeId, p2Action);
@@ -235,11 +239,17 @@ describe('sit-out auto-action', () => {
 
       // Now player-1 should be active (if hand is still in progress)
       if (state.handInProgress && state.activePlayerId === 'player-1') {
-        // autoFoldSittingOutPlayers always uses FOLD
-        const foldTransitions = processAction(state, 'player-1', 'FOLD');
+        const p1 = state.players.find(p => p.id === 'player-1')!;
+        const canCheck = p1.bet >= state.currentBet;
+        const action = canCheck ? 'CHECK' : 'FOLD';
+        const foldTransitions = processAction(state, 'player-1', action);
         const finalState = foldTransitions[foldTransitions.length - 1].state;
         const player = finalState.players.find(p => p.id === 'player-1')!;
-        expect(player.folded).toBe(true);
+        if (canCheck) {
+          expect(player.folded).toBe(false);
+        } else {
+          expect(player.folded).toBe(true);
+        }
       }
     }
   });

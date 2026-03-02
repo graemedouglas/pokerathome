@@ -488,7 +488,7 @@ export class GameManager {
     }
   }
 
-  /** Auto-fold sitting-out players in tournaments when it's their turn. */
+  /** Auto-act for sitting-out players in tournaments: check if possible, else fold. */
   private autoFoldSittingOutPlayers(gameId: string, sessions: SessionManager): void {
     const active = this.activeGames.get(gameId);
     if (!active || !active.state.handInProgress) return;
@@ -496,13 +496,15 @@ export class GameManager {
     const activePlayer = active.state.players.find(p => p.id === active.state.activePlayerId);
     if (!activePlayer || !activePlayer.sittingOut) return;
 
-    // Active player is sitting out — auto-fold immediately
+    // Active player is sitting out — check if possible, else fold
     this.clearTimers(active);
-    this.logger.info({ gameId, playerId: activePlayer.id }, 'Auto-folding sitting-out player');
-    const transitions = processAction(active.state, activePlayer.id, 'FOLD');
+    const canCheck = activePlayer.bet >= active.state.currentBet;
+    const defaultAction = canCheck ? 'CHECK' : 'FOLD';
+    this.logger.info({ gameId, playerId: activePlayer.id, defaultAction }, 'Auto-acting for sitting-out player');
+    const transitions = processAction(active.state, activePlayer.id, defaultAction);
     this.applyTransitions(gameId, transitions, sessions);
     // applyTransitions will start the next action timer, which will trigger
-    // another auto-fold if the next active player is also sitting out
+    // another auto-act if the next active player is also sitting out
   }
 
   // ─── Action handling ────────────────────────────────────────────────────────
