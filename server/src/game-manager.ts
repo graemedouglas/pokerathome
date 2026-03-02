@@ -411,8 +411,9 @@ export class GameManager {
     const active = this.activeGames.get(gameId);
     if (!active) return;
 
-    // If tournament is paused, don't start the next hand
+    // If game is paused or a hand is already in progress, don't start another
     if (active.isPaused) return;
+    if (active.state.handInProgress) return;
 
     const isTournament = active.state.gameType === 'tournament';
 
@@ -426,18 +427,15 @@ export class GameManager {
       return;
     }
 
-    // Tournament: pause if not enough active (non-sitting-out) players
-    if (isTournament) {
-      const activePlayers = playersWithChips.filter(p => !p.sittingOut);
-      if (activePlayers.length < 2) {
+    // Pause if not enough active (non-sitting-out) players — applies to both game types
+    const activePlayers = playersWithChips.filter(p => !p.sittingOut);
+    if (activePlayers.length < 2) {
+      if (isTournament) {
         // Preserve remaining blind time BEFORE clearing timers (clearBlindTimers nulls the fields)
         if (active.blindTimerStartedAt != null && active.blindTimerDurationMs != null) {
           const elapsed = Date.now() - active.blindTimerStartedAt;
           active.pausedBlindRemainingMs = Math.max(0, active.blindTimerDurationMs - elapsed);
         }
-
-        active.isPaused = true;
-        active.waitingForPlayers = true;
         this.clearBlindTimers(active);
 
         const event: Event = { type: 'TOURNAMENT_PAUSED' };
@@ -447,10 +445,14 @@ export class GameManager {
           action: 'gameState',
           payload: buildGameStatePayload(active.state, event, viewerId, undefined, active.spectatorVisibility, overrides),
         }));
-
-        this.logger.info({ gameId, activePlayers: activePlayers.length, totalWithChips: playersWithChips.length }, 'Tournament paused — waiting for players to return');
-        return;
       }
+
+      active.isPaused = true;
+      active.waitingForPlayers = true;
+
+      this.logger.info({ gameId, activePlayers: activePlayers.length, totalWithChips: playersWithChips.length },
+        `${isTournament ? 'Tournament' : 'Cash game'} paused — waiting for players to return`);
+      return;
     }
 
     // Apply pending blind increase (timer expired between hands)
@@ -478,11 +480,8 @@ export class GameManager {
       active.riggedDeck = null;
       const transitions = startHand(active.state, deckOverride);
       this.applyTransitions(gameId, transitions, sessions);
-
-      // For tournaments: auto-fold sitting-out players
-      if (isTournament) {
-        this.autoFoldSittingOutPlayers(gameId, sessions);
-      }
+      // Auto-act for sitting-out players is handled by applyTransitions
+      // via setTimeout to avoid deep recursion and double-invocation
     } catch (err) {
       this.logger.error({ err, gameId }, 'Failed to start hand');
     }
@@ -735,9 +734,9 @@ export class GameManager {
       // Hand ended — save history and snapshot
       this.onHandEnd(gameId, sessions);
     } else if (active.state.activePlayerId) {
-      // Check if active player is sitting out (tournament auto-fold)
+      // Check if active player is sitting out — auto-act (check or fold)
       const activePlayer = active.state.players.find(p => p.id === active.state.activePlayerId);
-      if (activePlayer?.sittingOut && active.state.gameType === 'tournament') {
+      if (activePlayer?.sittingOut) {
         // Schedule auto-fold on next tick to avoid deep recursion
         setTimeout(() => this.autoFoldSittingOutPlayers(gameId, sessions), 0);
         return;
@@ -1028,51 +1027,59 @@ export class GameManager {
 
     active.state = engineSetSittingOut(active.state, playerId, sittingOut);
 
-    // Broadcast updated state — don't send actionTimeout if the active player is sitting out
-    // (they're about to be auto-acted, so showing action buttons would be misleading)
-    const activeP = active.state.players.find(p => p.id === active.state.activePlayerId);
+    // Broadcast updated state — never send actionTimeout here.
+    // The action timer is managed by startActionTimer / applyTransitions.
+    // Sending a fresh actionTimeout would reset the active player's client-side timer
+    // while the server timer keeps counting, causing a timer desync.
     const overrides = this.getTournamentOverrides(active);
+    const sittingOutEvent = { type: 'PLAYER_SITTING_OUT', playerId, sittingOut } as Event;
     sessions.broadcastPersonalized(gameId, (viewerId) => ({
       action: 'gameState',
       payload: buildGameStatePayload(
         active.state,
-        { type: 'PLAYER_SITTING_OUT', playerId, sittingOut } as Event,
+        sittingOutEvent,
         viewerId,
-        (active.state.activePlayerId === viewerId && !activeP?.sittingOut) ? config.ACTION_TIMEOUT_MS : undefined,
+        undefined,
         active.spectatorVisibility,
         overrides
       ),
     }));
 
+    // Record in replay so sit-out transitions are visible when debugging
+    active.recorder?.recordEvent(sittingOutEvent, active.state);
+
     this.logger.info({ gameId, playerId, sittingOut }, 'Player sit-out toggled');
 
-    // Player returning while tournament is waiting for players — check if we can resume
-    if (!sittingOut && active.waitingForPlayers && active.state.gameType === 'tournament') {
+    // Player returning while game is waiting for players — check if we can resume
+    if (!sittingOut && active.waitingForPlayers) {
       const playersWithChips = active.state.players.filter(p => p.role === 'player' && p.stack > 0);
       const activePlayers = playersWithChips.filter(p => !p.sittingOut);
       if (activePlayers.length >= 2) {
         active.isPaused = false;
         active.waitingForPlayers = false;
 
-        // Resume blind timer
-        const remainingMs = active.pausedBlindRemainingMs;
-        active.pausedBlindRemainingMs = null;
-        if (remainingMs != null && remainingMs > 0) {
-          this.startBlindTimer(gameId, sessions, remainingMs);
-        } else if (active.tournamentConfig) {
-          this.startBlindTimer(gameId, sessions);
+        if (active.state.gameType === 'tournament') {
+          // Resume blind timer
+          const remainingMs = active.pausedBlindRemainingMs;
+          active.pausedBlindRemainingMs = null;
+          if (remainingMs != null && remainingMs > 0) {
+            this.startBlindTimer(gameId, sessions, remainingMs);
+          } else if (active.tournamentConfig) {
+            this.startBlindTimer(gameId, sessions);
+          }
+
+          // Broadcast TOURNAMENT_RESUMED
+          const resumeEvent: Event = { type: 'TOURNAMENT_RESUMED' };
+          active.recorder?.recordEvent(resumeEvent, active.state);
+          const resumeOverrides = this.getTournamentOverrides(active);
+          sessions.broadcastPersonalized(gameId, (viewerId) => ({
+            action: 'gameState',
+            payload: buildGameStatePayload(active.state, resumeEvent, viewerId, undefined, active.spectatorVisibility, resumeOverrides),
+          }));
         }
 
-        // Broadcast TOURNAMENT_RESUMED
-        const resumeEvent: Event = { type: 'TOURNAMENT_RESUMED' };
-        active.recorder?.recordEvent(resumeEvent, active.state);
-        const resumeOverrides = this.getTournamentOverrides(active);
-        sessions.broadcastPersonalized(gameId, (viewerId) => ({
-          action: 'gameState',
-          payload: buildGameStatePayload(active.state, resumeEvent, viewerId, undefined, active.spectatorVisibility, resumeOverrides),
-        }));
-
-        this.logger.info({ gameId, activePlayers: activePlayers.length }, 'Tournament resumed — enough players returned');
+        this.logger.info({ gameId, activePlayers: activePlayers.length },
+          `${active.state.gameType === 'tournament' ? 'Tournament' : 'Cash game'} resumed — enough players returned`);
 
         // Start the next hand
         setTimeout(() => this.startNextHand(gameId, sessions), config.HAND_DELAY_MS);
@@ -1080,12 +1087,11 @@ export class GameManager {
       }
     }
 
-    // If the player just came back and they're the active player in a tournament,
+    // If the player just came back and they're the active player,
     // they should get their normal action timer (already handled by broadcast above).
     // If they sat out and they're the active player, resolve their action immediately
     // with check (if no bet to call) or fold — this is their last "live" action.
-    if (sittingOut && active.state.handInProgress && active.state.activePlayerId === playerId
-        && active.state.gameType === 'tournament') {
+    if (sittingOut && active.state.handInProgress && active.state.activePlayerId === playerId) {
       this.clearTimers(active);
       const canCheck = player.bet >= active.state.currentBet;
       const defaultAction = canCheck ? 'CHECK' : 'FOLD';

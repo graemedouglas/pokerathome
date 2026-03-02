@@ -254,3 +254,225 @@ describe('sit-out auto-action', () => {
     }
   });
 });
+
+describe('cash game sit-out', () => {
+  function makeCashConfig(overrides: Partial<GameConfig> = {}): GameConfig {
+    return {
+      gameId: 'test-cash',
+      gameName: 'Test Cash',
+      gameType: 'cash',
+      smallBlindAmount: 25,
+      bigBlindAmount: 50,
+      maxPlayers: 6,
+      startingStack: 5000,
+      ...overrides,
+    };
+  }
+
+  function makeCashState(): EngineState {
+    let state = createInitialState(makeCashConfig());
+    state = addPlayer(state, 'player-1', 'Alice').state;
+    state = addPlayer(state, 'player-2', 'Bob').state;
+    return state;
+  }
+
+  function startCashHand(): EngineState {
+    let state = makeCashState();
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    const transitions = startHand(state);
+    return transitions[transitions.length - 1].state;
+  }
+
+  test('sitting-out player is excluded from cash game hand (folded at start)', () => {
+    let state = makeCashState();
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    state = setPlayerSittingOut(state, 'player-1', true);
+
+    // In cash games, sitting-out players need 3+ total players to start a hand
+    // (sitting-out players are excluded from active count)
+    // With only 2 players and 1 sitting out, startHand would throw.
+    // Add a third player so the hand can start.
+    state = addPlayer(state, 'player-3', 'Charlie').state;
+    state = setPlayerReady(state, 'player-3');
+
+    const transitions = startHand(state);
+    const handState = transitions[transitions.length - 1].state;
+
+    // player-1 should be folded (excluded from the hand)
+    const p1 = handState.players.find(p => p.id === 'player-1')!;
+    expect(p1.folded).toBe(true);
+    expect(p1.sittingOut).toBe(true);
+    expect(p1.holeCards).toBeNull();
+  });
+
+  test('cash game: sitting out mid-hand with no bet → CHECK', () => {
+    let state = startCashHand();
+    const activeId = state.activePlayerId!;
+    const activePlayer = state.players.find(p => p.id === activeId)!;
+
+    // Get to a point where the active player can check
+    if (activePlayer.bet < state.currentBet) {
+      const callTransitions = processAction(state, activeId, 'CALL');
+      state = callTransitions[callTransitions.length - 1].state;
+    }
+
+    const checkerId = state.activePlayerId!;
+    const checker = state.players.find(p => p.id === checkerId)!;
+    expect(checker.bet).toBeGreaterThanOrEqual(state.currentBet);
+
+    // Sit out — should check (same logic as tournament)
+    state = setPlayerSittingOut(state, checkerId, true);
+    const canCheck = checker.bet >= state.currentBet;
+    expect(canCheck).toBe(true);
+
+    const transitions = processAction(state, checkerId, 'CHECK');
+    const finalState = transitions[transitions.length - 1].state;
+    const updated = finalState.players.find(p => p.id === checkerId)!;
+    expect(updated.folded).toBe(false);
+    expect(updated.sittingOut).toBe(true);
+  });
+
+  test('cash game: sitting out mid-hand facing a bet → FOLD', () => {
+    let state = startCashHand();
+    const activeId = state.activePlayerId!;
+    const activePlayer = state.players.find(p => p.id === activeId)!;
+
+    // Ensure the active player faces a bet
+    if (activePlayer.bet >= state.currentBet) {
+      const raiseTransitions = processAction(state, activeId, 'RAISE', state.currentBet * 2);
+      state = raiseTransitions[raiseTransitions.length - 1].state;
+    }
+
+    const facingBetId = state.activePlayerId!;
+    const facingBetPlayer = state.players.find(p => p.id === facingBetId)!;
+    expect(facingBetPlayer.bet).toBeLessThan(state.currentBet);
+
+    // Sit out — should fold
+    state = setPlayerSittingOut(state, facingBetId, true);
+    const transitions = processAction(state, facingBetId, 'FOLD');
+    const finalState = transitions[transitions.length - 1].state;
+    const updated = finalState.players.find(p => p.id === facingBetId)!;
+    expect(updated.folded).toBe(true);
+    expect(updated.sittingOut).toBe(true);
+  });
+
+  test('cash game: startHand throws with <2 active (non-sitting-out) players', () => {
+    // Regression: when one player sits out in a 2-player cash game,
+    // startHand should throw — game-manager must catch this and pause.
+    let state = makeCashState();
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    state = setPlayerSittingOut(state, 'player-1', true);
+
+    // Only 1 active player — startHand should throw
+    expect(() => startHand(state)).toThrow('Not enough players to start a hand');
+  });
+
+  test('cash game: startHand throws when both players are sitting out', () => {
+    // Regression: when both players sit out, startHand throws.
+    // Game-manager must enter waitingForPlayers state instead of silently failing.
+    let state = makeCashState();
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    state = setPlayerSittingOut(state, 'player-1', true);
+    state = setPlayerSittingOut(state, 'player-2', true);
+
+    expect(() => startHand(state)).toThrow('Not enough players to start a hand');
+
+    // Unsit both — startHand should succeed
+    state = setPlayerSittingOut(state, 'player-1', false);
+    state = setPlayerSittingOut(state, 'player-2', false);
+    const transitions = startHand(state);
+    expect(transitions.length).toBeGreaterThan(0);
+    const handState = transitions[transitions.length - 1].state;
+    expect(handState.handInProgress).toBe(true);
+  });
+
+  test('cash game: 3-player game continues when 1 player sits out', () => {
+    // With 3 players, sitting out 1 leaves 2 active — hand should still start
+    let state = createInitialState(makeCashConfig());
+    state = addPlayer(state, 'player-1', 'Alice').state;
+    state = addPlayer(state, 'player-2', 'Bob').state;
+    state = addPlayer(state, 'player-3', 'Charlie').state;
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    state = setPlayerReady(state, 'player-3');
+    state = setPlayerSittingOut(state, 'player-1', true);
+
+    const transitions = startHand(state);
+    const handState = transitions[transitions.length - 1].state;
+    expect(handState.handInProgress).toBe(true);
+
+    // player-1 should be folded (excluded)
+    const p1 = handState.players.find(p => p.id === 'player-1')!;
+    expect(p1.folded).toBe(true);
+    expect(p1.sittingOut).toBe(true);
+    expect(p1.holeCards).toBeNull();
+
+    // player-2 and player-3 should be active
+    const p2 = handState.players.find(p => p.id === 'player-2')!;
+    const p3 = handState.players.find(p => p.id === 'player-3')!;
+    expect(p2.folded).toBe(false);
+    expect(p3.folded).toBe(false);
+  });
+
+  test('player returning from sit-out mid-hand does not corrupt game state', () => {
+    // Regression: when a player un-sits-out during an active hand,
+    // the game state should remain consistent and the active player can still act.
+    let state = createInitialState(makeCashConfig());
+    state = addPlayer(state, 'player-1', 'Alice').state;
+    state = addPlayer(state, 'player-2', 'Bob').state;
+    state = addPlayer(state, 'player-3', 'Charlie').state;
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    state = setPlayerReady(state, 'player-3');
+
+    // Start hand, then sit out player-1 (they get auto-excluded next hand, but
+    // mid-hand they're still folded/dealt in this hand)
+    const transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    expect(state.handInProgress).toBe(true);
+
+    // Sit out player-1 mid-hand
+    state = setPlayerSittingOut(state, 'player-1', true);
+    const p1 = state.players.find(p => p.id === 'player-1')!;
+    expect(p1.sittingOut).toBe(true);
+
+    // Player-1 returns mid-hand
+    state = setPlayerSittingOut(state, 'player-1', false);
+    const p1After = state.players.find(p => p.id === 'player-1')!;
+    expect(p1After.sittingOut).toBe(false);
+
+    // Game state should still be valid — active player can act
+    expect(state.handInProgress).toBe(true);
+    expect(state.activePlayerId).toBeTruthy();
+
+    // The active player should be able to take an action without errors
+    const activeId = state.activePlayerId!;
+    const activePlayer = state.players.find(p => p.id === activeId)!;
+    const canCheck = activePlayer.bet >= state.currentBet;
+    const action = canCheck ? 'CHECK' : 'CALL';
+    const actionTransitions = processAction(state, activeId, action);
+    expect(actionTransitions.length).toBeGreaterThan(0);
+  });
+
+  test('startHand on already-in-progress state double-increments handNumber', () => {
+    // This confirms why the handInProgress guard in startNextHand is needed:
+    // calling startHand on an active state would corrupt it by starting a new hand.
+    let state = makeCashState();
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+
+    const transitions = startHand(state);
+    const handState = transitions[transitions.length - 1].state;
+    expect(handState.handInProgress).toBe(true);
+    expect(handState.handNumber).toBe(1);
+
+    // Calling startHand again would start hand 2 on top of hand 1 — corruption
+    const transitions2 = startHand(handState);
+    const hand2State = transitions2[transitions2.length - 1].state;
+    expect(hand2State.handNumber).toBe(2); // double-incremented — this is the bug the guard prevents
+  });
+});
