@@ -58,6 +58,8 @@ export class GameController {
   private pendingActionRequest = false
   private actionCancelled = false
   private sitOutSynced = false
+  private sitOutPending = false
+  private mySittingOut = false
 
   /** All per-hand state lives here — nuked on HAND_START */
   private hand: HandContext = freshHandContext()
@@ -119,16 +121,33 @@ export class GameController {
         return
       }
 
-      // If we have a pending action and the server says our player timed out or sat out,
-      // cancel the action immediately (before queuing) to prevent chain deadlock
-      if (msg.action === 'gameState' && this.pendingActionRequest) {
+      // Synchronous pre-chain handling for gameState events
+      if (msg.action === 'gameState') {
         const payload = msg.payload as GameStateUpdatePayload
-        if (payload.event.type === 'PLAYER_TIMEOUT' ||
-            (payload.event.type === 'PLAYER_SITTING_OUT' &&
-             (payload.event as { sittingOut: boolean }).sittingOut === true)) {
-          const evt = payload.event as { type: string; playerId: string }
+
+        // Update own sit-out button immediately (before chain) for responsive UI.
+        // The button is server-authoritative — it only changes on server confirmation.
+        if (payload.event.type === 'PLAYER_SITTING_OUT') {
+          const evt = payload.event as { playerId: string; sittingOut: boolean }
           if (evt.playerId === this.myPlayerId) {
-            this.cancelPendingAction()
+            this.sitOutPending = false
+            this.mySittingOut = evt.sittingOut
+            if (this.renderer) {
+              this.renderer.setSitOutState(evt.sittingOut)
+            }
+          }
+        }
+
+        // If we have a pending action and the server says our player timed out or sat out,
+        // cancel the action immediately (before queuing) to prevent chain deadlock
+        if (this.pendingActionRequest) {
+          if (payload.event.type === 'PLAYER_TIMEOUT' ||
+              (payload.event.type === 'PLAYER_SITTING_OUT' &&
+               (payload.event as { sittingOut: boolean }).sittingOut === true)) {
+            const evt = payload.event as { type: string; playerId: string }
+            if (evt.playerId === this.myPlayerId) {
+              this.cancelPendingAction()
+            }
           }
         }
       }
@@ -151,6 +170,14 @@ export class GameController {
   /** Attach the renderer and flush any buffered messages. */
   attachRenderer(renderer: GameRenderer, initialState?: GameStateUpdatePayload, handHistory?: ServerEvent[]): void {
     this.renderer = renderer
+
+    // Register sit-out click callback: track pending state and cancel action panel immediately
+    renderer.setOnSitOutClicked((sittingOut: boolean) => {
+      this.sitOutPending = true
+      if (sittingOut && this.pendingActionRequest) {
+        this.cancelPendingAction()
+      }
+    })
 
     // Replay hand history to populate HandContext (cardsDealt, blinds, etc.)
     // without triggering animations. This handles spectators joining mid-hand.
@@ -264,6 +291,7 @@ export class GameController {
       const myPlayer = serverState.players.find(p => p.id === this.myPlayerId)
       if (myPlayer) {
         this.renderer.setSitOutState(myPlayer.sittingOut)
+        this.mySittingOut = myPlayer.sittingOut
         this.sitOutSynced = true
       }
     }
@@ -326,7 +354,8 @@ export class GameController {
     await this.processEvent(event, serverState, uiState)
 
     // Handle action request (it's our turn) -- spectators never act
-    if (actionRequest && !this.pendingActionRequest && !this.isSpectator) {
+    // Skip if sitOutPending: user just clicked "Sit Out" but server hasn't confirmed yet
+    if (actionRequest && !this.pendingActionRequest && !this.isSpectator && !this.sitOutPending && !this.mySittingOut) {
       this.pendingActionRequest = true
       this.actionCancelled = false
       const available = adaptActionRequest(actionRequest)
@@ -361,12 +390,10 @@ export class GameController {
         }
         r.resetForNewHand()
         r.addLog(`--- Hand #${event.handNumber} ---`)
-        // Resync sit-out button with server truth at the start of each hand.
-        // This corrects any divergence from lost WebSocket messages or tab throttling.
-        const myPlayer = serverState.players.find(p => p.id === this.myPlayerId)
-        if (myPlayer) {
-          r.setSitOutState(myPlayer.sittingOut)
-        }
+        // Note: sit-out button is synced by the pre-chain PLAYER_SITTING_OUT handler
+        // and the one-time sync on first gameState. Do NOT resync here — the chain
+        // processes events with delay (animations), so serverState may be stale
+        // relative to a more recent pre-chain PLAYER_SITTING_OUT update.
         r.update(uiState)
         break
       }
@@ -487,10 +514,12 @@ export class GameController {
         const sitPlayer = serverState.players.find(p => p.id === event.playerId)
         const sitName = sitPlayer?.displayName ?? 'Player'
         r.addLog(`${sitName} is ${event.sittingOut ? 'sitting out' : 'back'}`)
-        // Don't call setSitOutState for own player — the button click handler
-        // already set the state optimistically, and server confirmations arriving
-        // later (especially through the queued promise chain) would override the
-        // user's most recent click. Only PLAYER_TIMEOUT should force sit-out.
+        // Server-authoritative: always sync own player's button state.
+        // The pre-chain handler already updated it synchronously for responsiveness;
+        // this is a harmless idempotent confirmation.
+        if (event.playerId === this.myPlayerId) {
+          r.setSitOutState(event.sittingOut)
+        }
         r.update(uiState)
         break
       }

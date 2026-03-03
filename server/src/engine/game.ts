@@ -272,24 +272,23 @@ export function startHand(inputState: EngineState, deckOverride?: string[]): Tra
 
   const isTournament = state.gameType === 'tournament';
 
-  // In cash games, sitting-out players are excluded from the hand entirely.
-  // In tournaments, sitting-out players participate (pay blinds, get dealt) but auto-fold.
+  // Sitting-out players are excluded from the hand entirely in both modes.
+  // If a player sits out mid-hand, they auto-check/fold for that hand only.
   const activePlayers = state.players.filter((p) =>
-    p.role === 'player' && p.stack > 0 && (isTournament || !p.sittingOut)
+    p.role === 'player' && p.stack > 0 && !p.sittingOut
   );
   if (activePlayers.length < 2) {
     throw new Error('Not enough players to start a hand');
   }
 
-  // Advance dealer button (skip sitting-out players in cash games)
+  // Advance dealer button (skip sitting-out players)
   const prevDealer = state.dealerSeatIndex;
   const nextDealer = findNextPlayer(state.players, prevDealer, (p) =>
-    p.role === 'player' && p.stack > 0 && (isTournament || !p.sittingOut)
+    p.role === 'player' && p.stack > 0 && !p.sittingOut
   );
   if (!nextDealer) throw new Error('Cannot find next dealer');
 
-  // Reset hand state
-  // In cash games, sitting-out players are folded (excluded from the hand)
+  // Reset hand state — sitting-out players are folded (excluded) in both modes
   state = {
     ...state,
     handNumber: state.handNumber + 1,
@@ -309,7 +308,7 @@ export function startHand(inputState: EngineState, deckOverride?: string[]): Tra
       ...p,
       bet: 0,
       potShare: 0,
-      folded: p.role !== 'player' || p.stack <= 0 || (!isTournament && p.sittingOut),
+      folded: p.role !== 'player' || p.stack <= 0 || p.sittingOut,
       holeCards: null,
       isAllIn: false,
     })),

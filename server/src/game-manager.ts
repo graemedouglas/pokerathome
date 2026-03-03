@@ -517,7 +517,7 @@ export class GameManager {
     }
   }
 
-  /** Auto-act for sitting-out players in tournaments: check if possible, else fold. */
+  /** Auto-act for sitting-out players: check if possible, else fold. */
   private autoFoldSittingOutPlayers(gameId: string, sessions: SessionManager): void {
     const active = this.activeGames.get(gameId);
     if (!active || !active.state.handInProgress) return;
@@ -1075,6 +1075,19 @@ export class GameManager {
     const player = active.state.players.find(p => p.id === playerId);
     if (!player || player.role !== 'player') return;
 
+    // Idempotency guard: if already in the requested state, send a targeted
+    // confirmation to the requester so their client can resync (the button state
+    // may be stale due to chain processing delays), but don't broadcast to everyone.
+    if (player.sittingOut === sittingOut) {
+      const overrides = this.getTournamentOverrides(active);
+      const syncEvent = { type: 'PLAYER_SITTING_OUT', playerId, sittingOut: player.sittingOut } as Event;
+      sessions.send(playerId, {
+        action: 'gameState',
+        payload: buildGameStatePayload(active.state, syncEvent, playerId, undefined, active.spectatorVisibility, overrides),
+      });
+      return;
+    }
+
     active.state = engineSetSittingOut(active.state, playerId, sittingOut);
 
     // Broadcast updated state.
@@ -1101,16 +1114,6 @@ export class GameManager {
     // Start action timer if returning as the active player
     if (isReturningAsActive) {
       this.startActionTimer(gameId, playerId, sessions);
-    }
-
-    // In tournaments, if the active player just sat out, auto-fold immediately
-    // instead of waiting for the action timer to expire.
-    const isSittingOutAsActive = sittingOut
-      && active.state.handInProgress
-      && active.state.activePlayerId === playerId;
-    if (isSittingOutAsActive && active.state.gameType === 'tournament') {
-      this.clearTimers(active);
-      setTimeout(() => this.autoFoldSittingOutPlayers(gameId, sessions), 0);
     }
 
     // Record in replay so sit-out transitions are visible when debugging

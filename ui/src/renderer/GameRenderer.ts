@@ -63,7 +63,10 @@ export class GameRenderer {
   private sitOutButton: Container | null = null;
   private sitOutButtonText: Text | null = null;
   private isSittingOut = false;
+  private sitOutPending = false;
   private wsClient: WsClient | null = null;
+  private onSitOutClicked: ((sittingOut: boolean) => void) | null = null;
+  private sitOutPendingTimer: ReturnType<typeof setTimeout> | null = null;
 
   async init(isSpectator = false, ws?: WsClient, replayController?: ReplayController): Promise<void> {
     this.isSpectator = isSpectator;
@@ -326,11 +329,16 @@ export class GameRenderer {
       this.sitOutButton.addChild(this.sitOutButtonText);
 
       this.sitOutButton.on('pointerdown', () => {
-        const newState = !this.isSittingOut;
-        const sent = this.wsClient?.send('setSittingOut', { sittingOut: newState }) ?? false;
+        if (this.sitOutPending) return;
+        const newSittingOut = !this.isSittingOut;
+        const sent = this.wsClient?.send('setSittingOut', { sittingOut: newSittingOut }) ?? false;
         if (sent) {
-          this.isSittingOut = newState;
-          this.sitOutButtonText!.text = newState ? "I'm Back" : 'Sit Out';
+          this.sitOutPending = true;
+          this.onSitOutClicked?.(newSittingOut);
+          // Safety timeout: re-enable button if server doesn't confirm within 5s
+          this.sitOutPendingTimer = setTimeout(() => {
+            if (this.sitOutPending) this.sitOutPending = false;
+          }, 5000);
         }
       });
       this.sitOutButton.on('pointerover', () => {
@@ -449,12 +457,22 @@ export class GameRenderer {
     this.spectatorPanel.update(state.spectators);
   }
 
-  /** Update sit-out button state (called only from explicit server events, not every update) */
+  /** Update sit-out button state from server confirmation. */
   setSitOutState(sittingOut: boolean): void {
     this.isSittingOut = sittingOut;
+    this.sitOutPending = false;
+    if (this.sitOutPendingTimer) {
+      clearTimeout(this.sitOutPendingTimer);
+      this.sitOutPendingTimer = null;
+    }
     if (this.sitOutButtonText) {
       this.sitOutButtonText.text = sittingOut ? "I'm Back" : 'Sit Out';
     }
+  }
+
+  /** Register callback for when the user clicks the sit-out button. */
+  setOnSitOutClicked(cb: (sittingOut: boolean) => void): void {
+    this.onSitOutClicked = cb;
   }
 
   /** Animate community card reveal (called by Game instead of direct state update) */
