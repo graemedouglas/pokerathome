@@ -1088,6 +1088,304 @@ describe('cash game sit-out', () => {
     expect(state.players.find(p => p.id === sitOutId)!.sittingOut).toBe(true);
   });
 
+  test('tournament: player returns between hands and is dealt in immediately', () => {
+    // Regression: returning player must be included in the very next hand.
+    let state = createInitialState(makeTournamentConfig());
+    state = addPlayer(state, 'player-1', 'Alice').state;
+    state = addPlayer(state, 'player-2', 'Bob').state;
+    state = addPlayer(state, 'player-3', 'Charlie').state;
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    state = setPlayerReady(state, 'player-3');
+
+    // Start hand 1
+    let transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+
+    // Sit out player-3 mid-hand
+    state = setPlayerSittingOut(state, 'player-3', true);
+
+    // Play out hand 1
+    let safety = 30;
+    while (state.handInProgress && safety-- > 0) {
+      const activeId = state.activePlayerId!;
+      const active = state.players.find(p => p.id === activeId)!;
+      const canCheck = active.bet >= state.currentBet;
+      if (active.sittingOut) {
+        const t = processAction(state, activeId, canCheck ? 'CHECK' : 'FOLD');
+        state = t[t.length - 1].state;
+      } else {
+        const t = processAction(state, activeId, canCheck ? 'CHECK' : 'CALL');
+        state = t[t.length - 1].state;
+      }
+    }
+    expect(state.handInProgress).toBe(false);
+
+    // Hand 2: player-3 still sitting out — should be excluded
+    transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    const p3h2 = state.players.find(p => p.id === 'player-3')!;
+    expect(p3h2.sittingOut).toBe(true);
+    expect(p3h2.folded).toBe(true);
+    expect(p3h2.holeCards).toBeNull();
+
+    // Play out hand 2
+    safety = 30;
+    while (state.handInProgress && safety-- > 0) {
+      const activeId = state.activePlayerId!;
+      const active = state.players.find(p => p.id === activeId)!;
+      const canCheck = active.bet >= state.currentBet;
+      const t = processAction(state, activeId, canCheck ? 'CHECK' : 'CALL');
+      state = t[t.length - 1].state;
+    }
+    expect(state.handInProgress).toBe(false);
+
+    // Player-3 returns BETWEEN hands
+    state = setPlayerSittingOut(state, 'player-3', false);
+    expect(state.players.find(p => p.id === 'player-3')!.sittingOut).toBe(false);
+
+    // Hand 3: player-3 must be dealt in
+    transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    const p3h3 = state.players.find(p => p.id === 'player-3')!;
+    expect(p3h3.sittingOut).toBe(false);
+    expect(p3h3.folded).toBe(false);
+    expect(p3h3.holeCards).not.toBeNull();
+  });
+
+  test('tournament: player returns during hand and is dealt in on following hand', () => {
+    // Player returns mid-hand. They stay folded for the current hand,
+    // but must be dealt in on the very next hand.
+    let state = createInitialState(makeTournamentConfig());
+    state = addPlayer(state, 'player-1', 'Alice').state;
+    state = addPlayer(state, 'player-2', 'Bob').state;
+    state = addPlayer(state, 'player-3', 'Charlie').state;
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    state = setPlayerReady(state, 'player-3');
+
+    // Hand 1: sit out player-3
+    let transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    state = setPlayerSittingOut(state, 'player-3', true);
+
+    // Play out hand 1
+    let safety = 30;
+    while (state.handInProgress && safety-- > 0) {
+      const activeId = state.activePlayerId!;
+      const active = state.players.find(p => p.id === activeId)!;
+      const canCheck = active.bet >= state.currentBet;
+      if (active.sittingOut) {
+        const t = processAction(state, activeId, canCheck ? 'CHECK' : 'FOLD');
+        state = t[t.length - 1].state;
+      } else {
+        const t = processAction(state, activeId, canCheck ? 'CHECK' : 'CALL');
+        state = t[t.length - 1].state;
+      }
+    }
+
+    // Hand 2: player-3 excluded
+    transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    expect(state.players.find(p => p.id === 'player-3')!.folded).toBe(true);
+
+    // Player-3 returns DURING hand 2 (mid-hand)
+    state = setPlayerSittingOut(state, 'player-3', false);
+    const p3mid = state.players.find(p => p.id === 'player-3')!;
+    expect(p3mid.sittingOut).toBe(false);
+    expect(p3mid.folded).toBe(true); // still folded for current hand
+
+    // Play out hand 2
+    safety = 30;
+    while (state.handInProgress && safety-- > 0) {
+      const activeId = state.activePlayerId!;
+      const active = state.players.find(p => p.id === activeId)!;
+      const canCheck = active.bet >= state.currentBet;
+      const t = processAction(state, activeId, canCheck ? 'CHECK' : 'CALL');
+      state = t[t.length - 1].state;
+    }
+
+    // Hand 3: player-3 must be dealt in
+    transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    const p3h3 = state.players.find(p => p.id === 'player-3')!;
+    expect(p3h3.sittingOut).toBe(false);
+    expect(p3h3.folded).toBe(false);
+    expect(p3h3.holeCards).not.toBeNull();
+  });
+
+  test('cash: player returns between hands and is dealt in immediately', () => {
+    // Same behavior as tournament — returning player is included in the next hand.
+    let state = createInitialState(makeCashConfig());
+    state = addPlayer(state, 'player-1', 'Alice').state;
+    state = addPlayer(state, 'player-2', 'Bob').state;
+    state = addPlayer(state, 'player-3', 'Charlie').state;
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    state = setPlayerReady(state, 'player-3');
+
+    // Hand 1: sit out player-3
+    let transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    state = setPlayerSittingOut(state, 'player-3', true);
+
+    // Play out hand 1
+    let safety = 30;
+    while (state.handInProgress && safety-- > 0) {
+      const activeId = state.activePlayerId!;
+      const active = state.players.find(p => p.id === activeId)!;
+      const canCheck = active.bet >= state.currentBet;
+      if (active.sittingOut) {
+        const t = processAction(state, activeId, canCheck ? 'CHECK' : 'FOLD');
+        state = t[t.length - 1].state;
+      } else {
+        const t = processAction(state, activeId, canCheck ? 'CHECK' : 'CALL');
+        state = t[t.length - 1].state;
+      }
+    }
+
+    // Player-3 returns between hands
+    state = setPlayerSittingOut(state, 'player-3', false);
+
+    // Next hand: player-3 must be dealt in
+    transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    const p3 = state.players.find(p => p.id === 'player-3')!;
+    expect(p3.sittingOut).toBe(false);
+    expect(p3.folded).toBe(false);
+    expect(p3.holeCards).not.toBeNull();
+  });
+
+  test('HU→3-way transition: dealer advances correctly after player returns', () => {
+    // When a player sits out (3→2 active, HU) and then returns (2→3),
+    // the dealer button must continue advancing clockwise.
+    let state = createInitialState(makeTournamentConfig());
+    state = addPlayer(state, 'player-1', 'Alice').state;  // seat 0
+    state = addPlayer(state, 'player-2', 'Bob').state;    // seat 1
+    state = addPlayer(state, 'player-3', 'Charlie').state; // seat 2
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    state = setPlayerReady(state, 'player-3');
+
+    // Hand 1 (3-way)
+    let transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    const dealer1 = state.dealerSeatIndex;
+
+    // Sit out player at next dealer position
+    // Find who would be dealer next and sit them out
+    state = setPlayerSittingOut(state, 'player-3', true);
+
+    // Play out hand 1
+    let safety = 30;
+    while (state.handInProgress && safety-- > 0) {
+      const activeId = state.activePlayerId!;
+      const active = state.players.find(p => p.id === activeId)!;
+      const canCheck = active.bet >= state.currentBet;
+      if (active.sittingOut) {
+        const t = processAction(state, activeId, canCheck ? 'CHECK' : 'FOLD');
+        state = t[t.length - 1].state;
+      } else {
+        const t = processAction(state, activeId, canCheck ? 'CHECK' : 'CALL');
+        state = t[t.length - 1].state;
+      }
+    }
+
+    // Hand 2 (HU — player-3 excluded)
+    transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    const dealer2 = state.dealerSeatIndex;
+    expect(dealer2).not.toBe(dealer1); // dealer advanced
+    const p3seat = state.players.find(p => p.id === 'player-3')!.seatIndex;
+    expect(state.dealerSeatIndex).not.toBe(p3seat); // dealer is not on the excluded player
+
+    // Play out hand 2
+    safety = 30;
+    while (state.handInProgress && safety-- > 0) {
+      const activeId = state.activePlayerId!;
+      const active = state.players.find(p => p.id === activeId)!;
+      const canCheck = active.bet >= state.currentBet;
+      const t = processAction(state, activeId, canCheck ? 'CHECK' : 'CALL');
+      state = t[t.length - 1].state;
+    }
+
+    // Hand 3 (still HU)
+    transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    const dealer3 = state.dealerSeatIndex;
+    expect(dealer3).not.toBe(dealer2); // dealer advanced again
+
+    // Play out hand 3
+    safety = 30;
+    while (state.handInProgress && safety-- > 0) {
+      const activeId = state.activePlayerId!;
+      const active = state.players.find(p => p.id === activeId)!;
+      const canCheck = active.bet >= state.currentBet;
+      const t = processAction(state, activeId, canCheck ? 'CHECK' : 'CALL');
+      state = t[t.length - 1].state;
+    }
+
+    // Player-3 returns
+    state = setPlayerSittingOut(state, 'player-3', false);
+
+    // Hand 4 (3-way again)
+    transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    const dealer4 = state.dealerSeatIndex;
+    expect(dealer4).not.toBe(dealer3); // dealer continued advancing
+
+    // All 3 players must be active
+    const activePlayers = state.players.filter(p => !p.folded && p.role === 'player');
+    expect(activePlayers).toHaveLength(3);
+
+    // Returned player must have cards
+    const p3h4 = state.players.find(p => p.id === 'player-3')!;
+    expect(p3h4.folded).toBe(false);
+    expect(p3h4.holeCards).not.toBeNull();
+  });
+
+  test('tournament: waitingForPlayers pause/resume deals returned player in', () => {
+    // When all but 1 player sit out, startHand throws. When enough return,
+    // the next startHand must succeed and include them.
+    let state = createInitialState(makeTournamentConfig());
+    state = addPlayer(state, 'player-1', 'Alice').state;
+    state = addPlayer(state, 'player-2', 'Bob').state;
+    state = addPlayer(state, 'player-3', 'Charlie').state;
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+    state = setPlayerReady(state, 'player-3');
+
+    // Sit out 2 of 3 players
+    state = setPlayerSittingOut(state, 'player-2', true);
+    state = setPlayerSittingOut(state, 'player-3', true);
+
+    // startHand should fail with <2 active players
+    const activePlayers = state.players.filter(p => p.role === 'player' && p.stack > 0 && !p.sittingOut);
+    expect(activePlayers).toHaveLength(1);
+    expect(() => startHand(state)).toThrow('Not enough players to start a hand');
+
+    // Player-2 returns — still only 1 active, not enough
+    state = setPlayerSittingOut(state, 'player-2', false);
+    // Now 2 active
+    const active2 = state.players.filter(p => p.role === 'player' && p.stack > 0 && !p.sittingOut);
+    expect(active2).toHaveLength(2);
+
+    // startHand should now succeed with player-1 and player-2
+    const transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    expect(state.handInProgress).toBe(true);
+
+    const p1 = state.players.find(p => p.id === 'player-1')!;
+    const p2 = state.players.find(p => p.id === 'player-2')!;
+    const p3 = state.players.find(p => p.id === 'player-3')!;
+    expect(p1.folded).toBe(false);
+    expect(p1.holeCards).not.toBeNull();
+    expect(p2.folded).toBe(false);
+    expect(p2.holeCards).not.toBeNull();
+    expect(p3.folded).toBe(true);  // still sitting out
+    expect(p3.holeCards).toBeNull();
+  });
+
   test('startHand on already-in-progress state double-increments handNumber', () => {
     // This confirms why the handInProgress guard in startNextHand is needed:
     // calling startHand on an active state would corrupt it by starting a new hand.
