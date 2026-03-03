@@ -19,6 +19,7 @@ import { createDeck, shuffle, deal } from './deck.js';
 import { evaluateShowdown } from './hand-evaluator.js';
 import { calculatePots, distributePots } from './pot.js';
 import { getAvailableActions } from './action-validator.js';
+import { calculateHandProbabilities, calculateWinEquity } from './hand-probability.js';
 import { config } from '../config.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -962,7 +963,8 @@ export function buildGameStatePayload(
   viewerPlayerId: string,
   timeToActMs?: number,
   spectatorVisibility?: string,
-  tournamentOverrides?: TournamentOverrides
+  tournamentOverrides?: TournamentOverrides,
+  includeHandProbabilities?: boolean
 ): GameStateUpdatePayload {
   const gameState = toClientGameState(state, viewerPlayerId, spectatorVisibility, tournamentOverrides);
 
@@ -972,7 +974,26 @@ export function buildGameStatePayload(
     actionRequest = { availableActions, timeToActMs };
   }
 
-  return { gameState, event, actionRequest };
+  let handProbabilities: Record<string, number> | undefined;
+  let handWinEquity: Record<string, number> | undefined;
+  if (includeHandProbabilities) {
+    const viewer = state.players.find((p) => p.id === viewerPlayerId);
+    if (viewer?.holeCards && viewer.role === 'player' && !viewer.folded) {
+      handProbabilities = calculateHandProbabilities(viewer.holeCards, state.communityCards);
+      const numOpponents = state.players.filter(
+        (p) => p.role === 'player' && !p.folded && p.id !== viewerPlayerId
+      ).length;
+      handWinEquity = calculateWinEquity(viewer.holeCards, state.communityCards, numOpponents);
+    }
+  }
+
+  return {
+    gameState,
+    event,
+    actionRequest,
+    ...(handProbabilities ? { handProbabilities } : {}),
+    ...(handWinEquity ? { handWinEquity } : {}),
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

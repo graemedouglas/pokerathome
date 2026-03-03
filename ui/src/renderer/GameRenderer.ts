@@ -533,6 +533,10 @@ export class GameRenderer {
     this.infoPanel.updateStats(handsPlayed, handsWon, biggestPot);
   }
 
+  updateHandProbabilities(formation: Record<string, number>, winEquity: Record<string, number>): void {
+    this.infoPanel.updateHandProbabilities(formation, winEquity);
+  }
+
   waitForHumanAction(available: AvailableActions, pot: number, timeToActMs?: number, minChipDenom?: number): Promise<PlayerAction> {
     return new Promise((resolve) => {
       this.humanActionResolve = resolve;

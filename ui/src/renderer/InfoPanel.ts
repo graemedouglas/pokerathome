@@ -2,11 +2,28 @@ import { Container, Graphics, Text } from 'pixi.js';
 import { COLORS, CANVAS_HEIGHT } from '../constants';
 
 const PANEL_W = 280;
-const PANEL_H = 320;
+const PANEL_H = 340;
 const TAB_H = 28;
+const TAB_W = 80;
 const HEADER_H = 32;
 
-type TabId = 'log' | 'stats';
+type TabId = 'log' | 'stats' | 'chance';
+
+const HAND_RANKS_DISPLAY: Array<{ key: string; label: string; color: number }> = [
+  { key: 'ROYAL_FLUSH',     label: 'Royal Flush',     color: 0xffd700 },
+  { key: 'STRAIGHT_FLUSH',  label: 'Straight Flush',  color: 0xe5a100 },
+  { key: 'FOUR_OF_A_KIND',  label: 'Four of a Kind',  color: 0xcc7722 },
+  { key: 'FULL_HOUSE',      label: 'Full House',      color: 0xbb5544 },
+  { key: 'FLUSH',           label: 'Flush',           color: 0x4488cc },
+  { key: 'STRAIGHT',        label: 'Straight',        color: 0x44aa88 },
+  { key: 'THREE_OF_A_KIND', label: 'Three of a Kind', color: 0x66aa44 },
+  { key: 'TWO_PAIR',        label: 'Two Pair',        color: 0x88aa44 },
+  { key: 'PAIR',            label: 'One Pair',        color: 0xaaaa44 },
+  { key: 'HIGH_CARD',       label: 'Highest Card',    color: 0x888888 },
+];
+
+const BAR_MAX_W = 70;
+const BAR_H = 7;
 
 export class InfoPanel extends Container {
   private panel!: Container;
@@ -24,6 +41,10 @@ export class InfoPanel extends Container {
   private handsPlayed = 0;
   private handsWon = 0;
   private biggestPot = 0;
+
+  // Chance tab
+  private chanceRows: Map<string, { makePctText: Text; winPctText: Text; bar: Graphics }> = new Map();
+  private totalEquityText!: Text;
 
   constructor() {
     super();
@@ -138,12 +159,12 @@ export class InfoPanel extends Container {
     this.panel.addChild(closeBtn);
 
     // Tabs
-    this.buildTab('log', 'Game Log', 12, HEADER_H + 4);
-    this.buildTab('stats', 'Stats', 100, HEADER_H + 4);
+    this.buildTab('log', 'Log', 12, HEADER_H + 4);
+    this.buildTab('stats', 'Stats', 12 + TAB_W + 4, HEADER_H + 4);
+    this.buildTab('chance', 'Chance', 12 + (TAB_W + 4) * 2, HEADER_H + 4);
 
     // Tab contents
     const contentY = HEADER_H + TAB_H + 10;
-    const contentH = PANEL_H - contentY - 10;
 
     // Log content
     const logContainer = new Container();
@@ -186,7 +207,107 @@ export class InfoPanel extends Container {
     statsContainer.addChild(this.statsText);
     this.tabContents.set('stats', statsContainer);
 
+    // Chance content
+    const chanceContainer = new Container();
+    chanceContainer.y = contentY;
+    chanceContainer.visible = false;
+    this.panel.addChild(chanceContainer);
+    this.buildChanceContent(chanceContainer);
+    this.tabContents.set('chance', chanceContainer);
+
     this.setActiveTab('log');
+  }
+
+  private buildChanceContent(container: Container): void {
+    const ROW_H = 22;
+    const MAKE_X = 120;
+    const BAR_X = 148;
+    const WIN_X = PANEL_W - 14;
+
+    // Column headers
+    const makeHeader = new Text({
+      text: 'Make',
+      style: { fontSize: 9, fill: COLORS.textMuted, fontFamily: 'Arial', fontWeight: 'bold' },
+    });
+    makeHeader.anchor.set(1, 0);
+    makeHeader.x = MAKE_X;
+    makeHeader.y = -2;
+    container.addChild(makeHeader);
+
+    const winHeader = new Text({
+      text: 'Win',
+      style: { fontSize: 9, fill: COLORS.textMuted, fontFamily: 'Arial', fontWeight: 'bold' },
+    });
+    winHeader.anchor.set(1, 0);
+    winHeader.x = WIN_X;
+    winHeader.y = -2;
+    container.addChild(winHeader);
+
+    const headerOffset = 14;
+
+    for (let i = 0; i < HAND_RANKS_DISPLAY.length; i++) {
+      const { key, label } = HAND_RANKS_DISPLAY[i];
+      const rowY = headerOffset + i * ROW_H;
+
+      // Subtle row separator
+      if (i > 0) {
+        const sep = new Graphics();
+        sep.rect(12, rowY - 2, PANEL_W - 24, 1);
+        sep.fill({ color: 0x2a2a50, alpha: 0.3 });
+        container.addChild(sep);
+      }
+
+      const nameText = new Text({
+        text: label,
+        style: { fontSize: 10, fill: COLORS.textLight, fontFamily: 'Arial' },
+      });
+      nameText.x = 12;
+      nameText.y = rowY + 2;
+      container.addChild(nameText);
+
+      // Make % (formation probability)
+      const makePctText = new Text({
+        text: '0%',
+        style: { fontSize: 10, fill: COLORS.textMuted, fontFamily: 'Arial' },
+      });
+      makePctText.anchor.set(1, 0);
+      makePctText.x = MAKE_X;
+      makePctText.y = rowY + 2;
+      container.addChild(makePctText);
+
+      // Win equity bar
+      const bar = new Graphics();
+      bar.x = BAR_X;
+      bar.y = rowY + 5;
+      container.addChild(bar);
+
+      // Win % (win equity)
+      const winPctText = new Text({
+        text: '0%',
+        style: { fontSize: 10, fill: COLORS.textLight, fontFamily: 'Arial', fontWeight: 'bold' },
+      });
+      winPctText.anchor.set(1, 0);
+      winPctText.x = WIN_X;
+      winPctText.y = rowY + 2;
+      container.addChild(winPctText);
+
+      this.chanceRows.set(key, { makePctText, winPctText, bar });
+    }
+
+    // Total win equity summary
+    const totalY = headerOffset + HAND_RANKS_DISPLAY.length * ROW_H + 4;
+    const totalSep = new Graphics();
+    totalSep.rect(12, totalY, PANEL_W - 24, 1);
+    totalSep.fill({ color: 0x2a2a50, alpha: 0.5 });
+    container.addChild(totalSep);
+
+    this.totalEquityText = new Text({
+      text: 'Win Equity: --%',
+      style: { fontSize: 12, fill: COLORS.textLight, fontFamily: 'Arial', fontWeight: 'bold' },
+    });
+    this.totalEquityText.x = 12;
+    this.totalEquityText.y = totalY + 6;
+    container.addChild(this.totalEquityText);
   }
 
   private buildTab(id: TabId, label: string, x: number, y: number): void {
@@ -195,11 +316,11 @@ export class InfoPanel extends Container {
     btn.y = y;
 
     const bg = new Graphics();
-    bg.roundRect(0, 0, 80, TAB_H, 4);
+    bg.roundRect(0, 0, TAB_W, TAB_H, 4);
     bg.fill(id === this.activeTab ? 0x222250 : 0x151530);
     bg.eventMode = 'static';
     bg.cursor = 'pointer';
-    bg.hitArea = { contains: (bx: number, by: number) => bx >= 0 && bx <= 80 && by >= 0 && by <= TAB_H };
+    bg.hitArea = { contains: (bx: number, by: number) => bx >= 0 && bx <= TAB_W && by >= 0 && by <= TAB_H };
     btn.addChild(bg);
     this.tabBgs.set(id, bg);
 
@@ -208,7 +329,7 @@ export class InfoPanel extends Container {
       style: { fontSize: 11, fill: id === this.activeTab ? COLORS.textWhite : COLORS.textMuted, fontFamily: 'Arial', fontWeight: 'bold' },
     });
     text.anchor.set(0.5);
-    text.x = 40;
+    text.x = TAB_W / 2;
     text.y = TAB_H / 2;
     btn.addChild(text);
     this.tabTexts.set(id, text);
@@ -223,7 +344,7 @@ export class InfoPanel extends Container {
     for (const [tabId, bg] of this.tabBgs) {
       const isActive = tabId === id;
       bg.clear();
-      bg.roundRect(0, 0, 80, TAB_H, 4);
+      bg.roundRect(0, 0, TAB_W, TAB_H, 4);
       bg.fill(isActive ? 0x222250 : 0x151530);
     }
 
@@ -268,6 +389,47 @@ export class InfoPanel extends Container {
     this.handsWon = handsWon;
     this.biggestPot = Math.max(this.biggestPot, biggestPot);
     this.statsText.text = this.getStatsString();
+  }
+
+  /** Update hand probability display with formation probability and win equity */
+  updateHandProbabilities(formation: Record<string, number>, winEquity: Record<string, number>): void {
+    let totalEquity = 0;
+
+    for (const { key, color } of HAND_RANKS_DISPLAY) {
+      const row = this.chanceRows.get(key);
+      if (!row) continue;
+
+      // Formation probability (Make column)
+      const makeProb = formation[key] ?? 0;
+      const makePct = Math.round(makeProb * 100);
+      row.makePctText.text = `${makePct}%`;
+
+      // Win equity (Win column + bar)
+      const winProb = winEquity[key] ?? 0;
+      totalEquity += winProb;
+      const winPct = Math.round(winProb * 1000) / 10; // One decimal place
+      row.winPctText.text = winProb > 0 ? `${winPct}%` : '0%';
+
+      row.bar.clear();
+      if (winProb > 0) {
+        const barW = Math.max(3, winProb * BAR_MAX_W * 3); // Scale up since win equity values are smaller
+        row.bar.roundRect(0, 0, Math.min(barW, BAR_MAX_W), BAR_H, 2);
+        row.bar.fill(color);
+      }
+    }
+
+    // Update total equity display
+    const totalPct = Math.round(totalEquity * 100);
+    this.totalEquityText.text = `Win Equity: ${totalPct}%`;
+
+    // Color based on equity level
+    if (totalPct >= 50) {
+      this.totalEquityText.style.fill = 0x44cc66; // Green
+    } else if (totalPct >= 30) {
+      this.totalEquityText.style.fill = 0xcccc44; // Yellow
+    } else {
+      this.totalEquityText.style.fill = 0xcc5544; // Red
+    }
   }
 
   private getStatsString(): string {

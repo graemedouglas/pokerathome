@@ -353,6 +353,14 @@ export class GameController {
     // Handle event-driven animations
     await this.processEvent(event, serverState, uiState)
 
+    // Forward hand probabilities and win equity to renderer if present
+    if (payload.handProbabilities && this.renderer) {
+      this.renderer.updateHandProbabilities(
+        payload.handProbabilities,
+        payload.handWinEquity ?? {}
+      )
+    }
+
     // Handle action request (it's our turn) -- spectators never act
     // Skip if sitOutPending: user just clicked "Sit Out" but server hasn't confirmed yet
     if (actionRequest && !this.pendingActionRequest && !this.isSpectator && !this.sitOutPending && !this.mySittingOut) {

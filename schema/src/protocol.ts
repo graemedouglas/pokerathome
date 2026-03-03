@@ -47,6 +47,9 @@ export const HandRank = z.enum([
 ]);
 export type HandRank = z.infer<typeof HandRank>;
 
+export const HandProbabilities = z.record(HandRank, z.number().min(0).max(1));
+export type HandProbabilities = z.infer<typeof HandProbabilities>;
+
 export const GameStatus = z.enum(['waiting', 'in_progress', 'completed']);
 export type GameStatus = z.infer<typeof GameStatus>;
 
@@ -404,6 +407,8 @@ export const GameStateUpdatePayload = z.object({
   gameState: GameState,
   event: Event,
   actionRequest: ActionRequest.optional(),
+  handProbabilities: HandProbabilities.optional(),
+  handWinEquity: HandProbabilities.optional(),
 });
 export type GameStateUpdatePayload = z.infer<typeof GameStateUpdatePayload>;
 

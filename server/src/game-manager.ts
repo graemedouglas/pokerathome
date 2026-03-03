@@ -771,6 +771,10 @@ export class GameManager {
         const activeP = active.state.players.find(p => p.id === active.state.activePlayerId);
         const timeToAct = (activeP?.sittingOut) ? undefined : config.ACTION_TIMEOUT_MS;
 
+        // Include hand probabilities only on card-changing events for non-spectator players
+        const CARD_EVENTS = new Set(['DEAL', 'FLOP', 'TURN', 'RIVER']);
+        const includeProbs = CARD_EVENTS.has(transition.event.type) && !isSpectator;
+
         return {
           action: 'gameState',
           payload: buildGameStatePayload(
@@ -779,7 +783,8 @@ export class GameManager {
             viewerId,
             timeToAct,
             active.spectatorVisibility,
-            this.getTournamentOverrides(active)
+            this.getTournamentOverrides(active),
+            includeProbs
           ),
         };
       });

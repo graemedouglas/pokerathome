@@ -23,7 +23,15 @@
       "Bash(taskkill //F //PID 33340)",
       "Bash(echo \"exit: $?\")",
       "Bash(npx -w server jest --testPathIgnorePatterns='bot-server')",
-      "Bash(npm run build)"
+      "Bash(npm run build)",
+      "Bash(xargs cat)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(gh api search/code -X GET -f q=\"chance repo:pokerth/pokerth\" --jq '.items[] | .name + \"\" : \"\" + .path')",
+      "Bash(gh api \"search/code?q=chance+repo:pokerth/pokerth\" --paginate)",
+      "Bash(gh api \"search/code?q=probability+repo:pokerth/pokerth\" --paginate)",
+      "Bash(gh api \"search/code?q=odds+repo:pokerth/pokerth\" --paginate)"
     ],
     "additionalDirectories": [
       "C:\\Users\\gdoug\\code\\pokerathome\\.claude"
