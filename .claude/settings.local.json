@@ -21,7 +21,12 @@
       "Bash(curl:*)",
       "Bash(node:*)",
       "Bash(taskkill //F //PID 33340)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(npx -w server jest --testPathIgnorePatterns='bot-server')",
+      "Bash(npm run build)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\gdoug\\code\\pokerathome\\.claude"
     ]
   },
   "autoUpdatesChannel": "latest"

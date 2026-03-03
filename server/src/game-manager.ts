@@ -1103,6 +1103,16 @@ export class GameManager {
       this.startActionTimer(gameId, playerId, sessions);
     }
 
+    // In tournaments, if the active player just sat out, auto-fold immediately
+    // instead of waiting for the action timer to expire.
+    const isSittingOutAsActive = sittingOut
+      && active.state.handInProgress
+      && active.state.activePlayerId === playerId;
+    if (isSittingOutAsActive && active.state.gameType === 'tournament') {
+      this.clearTimers(active);
+      setTimeout(() => this.autoFoldSittingOutPlayers(gameId, sessions), 0);
+    }
+
     // Record in replay so sit-out transitions are visible when debugging
     active.recorder?.recordEvent(sittingOutEvent, active.state);
 

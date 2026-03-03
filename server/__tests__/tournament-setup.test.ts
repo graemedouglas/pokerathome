@@ -339,6 +339,192 @@ describe('sit-out auto-action', () => {
     expect(p1.folded).toBe(false);
     expect(p1.holeCards).not.toBeNull();
   });
+
+  test('tournament: sitting-out player is dealt in but auto-checked/folded', () => {
+    // In tournaments, sitting-out players ARE dealt cards and pay blinds,
+    // but auto-check when they can, or auto-fold when facing a bet.
+    let state = makeTournamentState();
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+
+    // Sit out player-1 BEFORE the hand starts
+    state = setPlayerSittingOut(state, 'player-1', true);
+
+    const transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    expect(state.handInProgress).toBe(true);
+
+    // Tournament: sitting-out player should NOT be folded at hand start
+    const p1 = state.players.find(p => p.id === 'player-1')!;
+    expect(p1.folded).toBe(false);
+    expect(p1.sittingOut).toBe(true);
+    expect(p1.holeCards).not.toBeNull(); // dealt in
+
+    // Auto-act for player-1 whenever they're active
+    let safety = 20;
+    while (state.handInProgress && safety-- > 0) {
+      const activeId = state.activePlayerId!;
+      const active = state.players.find(p => p.id === activeId)!;
+      if (active.sittingOut) {
+        const canCheck = active.bet >= state.currentBet;
+        const action = canCheck ? 'CHECK' : 'FOLD';
+        const t = processAction(state, activeId, action);
+        state = t[t.length - 1].state;
+      } else {
+        // Other player acts normally
+        const canCheck = active.bet >= state.currentBet;
+        const action = canCheck ? 'CHECK' : 'CALL';
+        const t = processAction(state, activeId, action);
+        state = t[t.length - 1].state;
+      }
+    }
+    // Hand should complete without errors
+    expect(state.handInProgress).toBe(false);
+  });
+
+  test('tournament: player who returns between hands plays normally', () => {
+    // Sit out during hand N, return between hands, verify dealt into hand N+1 normally.
+    let state = makeTournamentState();
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+
+    // Start hand 1
+    let transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+
+    // Player-1 sits out mid-hand
+    state = setPlayerSittingOut(state, 'player-1', true);
+
+    // Play out hand 1 to completion
+    let safety = 20;
+    while (state.handInProgress && safety-- > 0) {
+      const activeId = state.activePlayerId!;
+      const active = state.players.find(p => p.id === activeId)!;
+      if (active.sittingOut) {
+        const canCheck = active.bet >= state.currentBet;
+        const action = canCheck ? 'CHECK' : 'FOLD';
+        const t = processAction(state, activeId, action);
+        state = t[t.length - 1].state;
+      } else {
+        const canCheck = active.bet >= state.currentBet;
+        const action = canCheck ? 'CHECK' : 'CALL';
+        const t = processAction(state, activeId, action);
+        state = t[t.length - 1].state;
+      }
+    }
+    expect(state.handInProgress).toBe(false);
+
+    // Player-1 returns between hands
+    state = setPlayerSittingOut(state, 'player-1', false);
+    expect(state.players.find(p => p.id === 'player-1')!.sittingOut).toBe(false);
+
+    // Start hand 2 — player-1 should be dealt in normally
+    transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+    const p1 = state.players.find(p => p.id === 'player-1')!;
+    expect(p1.sittingOut).toBe(false);
+    expect(p1.folded).toBe(false);
+    expect(p1.holeCards).not.toBeNull();
+  });
+
+  test('tournament: player who returns mid-hand can act on their next turn', () => {
+    // Sit out, get auto-checked (not folded), return, verify can act on next turn.
+    let state = makeTournamentState();
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+
+    const transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+
+    // Player-1 sits out
+    state = setPlayerSittingOut(state, 'player-1', true);
+
+    // Auto-check for player-1 if they're active and can check
+    let autoActed = false;
+    let safety = 10;
+    while (state.handInProgress && state.activePlayerId && safety-- > 0) {
+      const activeId = state.activePlayerId;
+      const active = state.players.find(p => p.id === activeId)!;
+
+      if (active.sittingOut) {
+        const canCheck = active.bet >= state.currentBet;
+        if (canCheck) {
+          // Auto-check — player stays in the hand
+          const t = processAction(state, activeId, 'CHECK');
+          state = t[t.length - 1].state;
+          autoActed = true;
+
+          // Now return from sit-out
+          state = setPlayerSittingOut(state, 'player-1', false);
+          const p1 = state.players.find(p => p.id === 'player-1')!;
+          expect(p1.sittingOut).toBe(false);
+          expect(p1.folded).toBe(false); // auto-checked, not folded
+        } else {
+          // Facing a bet — auto-fold
+          const t = processAction(state, activeId, 'FOLD');
+          state = t[t.length - 1].state;
+          autoActed = true;
+          break; // player is folded, can't test returning
+        }
+      } else {
+        // Non-sitting-out player acts
+        const canCheck = active.bet >= state.currentBet;
+        const action = canCheck ? 'CHECK' : 'CALL';
+        const t = processAction(state, activeId, action);
+        state = t[t.length - 1].state;
+
+        // If player-1 becomes active again after returning, verify they can act
+        if (state.handInProgress && state.activePlayerId === 'player-1') {
+          const p1 = state.players.find(p => p.id === 'player-1')!;
+          if (!p1.sittingOut && !p1.folded) {
+            const p1CanCheck = p1.bet >= state.currentBet;
+            const p1Action = p1CanCheck ? 'CHECK' : 'CALL';
+            const p1t = processAction(state, 'player-1', p1Action);
+            expect(p1t.length).toBeGreaterThan(0);
+            break;
+          }
+        }
+      }
+    }
+
+    expect(autoActed).toBe(true);
+  });
+
+  test('tournament: sitting out while active triggers immediate auto-action', () => {
+    // When a player sits out while they ARE the active player in a tournament,
+    // the engine should allow auto-check/fold. This test verifies the engine state
+    // supports this (the setTimeout scheduling is in game-manager, not the engine).
+    let state = makeTournamentState();
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+
+    const transitions = startHand(state);
+    state = transitions[transitions.length - 1].state;
+
+    const activeId = state.activePlayerId!;
+
+    // Sit out the active player
+    state = setPlayerSittingOut(state, activeId, true);
+    const active = state.players.find(p => p.id === activeId)!;
+    expect(active.sittingOut).toBe(true);
+    expect(active.folded).toBe(false); // not folded yet — waiting for auto-action
+    expect(state.activePlayerId).toBe(activeId); // still the active player
+
+    // Auto-action should work: check if possible, fold if facing a bet
+    const canCheck = active.bet >= state.currentBet;
+    const defaultAction = canCheck ? 'CHECK' : 'FOLD';
+    const autoTransitions = processAction(state, activeId, defaultAction);
+    expect(autoTransitions.length).toBeGreaterThan(0);
+
+    const postActionState = autoTransitions[autoTransitions.length - 1].state;
+    const postActive = postActionState.players.find(p => p.id === activeId)!;
+    expect(postActive.sittingOut).toBe(true); // still sitting out
+    if (canCheck) {
+      expect(postActive.folded).toBe(false); // checked, still in hand
+    } else {
+      expect(postActive.folded).toBe(true); // folded because facing bet
+    }
+  });
 });
 
 describe('cash game sit-out', () => {

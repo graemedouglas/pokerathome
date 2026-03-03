@@ -326,9 +326,12 @@ export class GameRenderer {
       this.sitOutButton.addChild(this.sitOutButtonText);
 
       this.sitOutButton.on('pointerdown', () => {
-        this.isSittingOut = !this.isSittingOut;
-        this.sitOutButtonText!.text = this.isSittingOut ? "I'm Back" : 'Sit Out';
-        this.wsClient?.send('setSittingOut', { sittingOut: this.isSittingOut });
+        const newState = !this.isSittingOut;
+        const sent = this.wsClient?.send('setSittingOut', { sittingOut: newState }) ?? false;
+        if (sent) {
+          this.isSittingOut = newState;
+          this.sitOutButtonText!.text = newState ? "I'm Back" : 'Sit Out';
+        }
       });
       this.sitOutButton.on('pointerover', () => {
         sitOutBg.clear();
