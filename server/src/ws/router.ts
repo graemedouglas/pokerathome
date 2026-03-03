@@ -58,6 +58,9 @@ export function createRouter(
         case 'ready':
           handlers.handleReady(session!, sessionManager, gameManager, logger);
           break;
+        case 'unready':
+          handlers.handleUnready(session!, sessionManager, gameManager, logger);
+          break;
         case 'startGame':
           handlers.handleStartGame(session!, sessionManager, gameManager, logger);
           break;

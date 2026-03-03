@@ -523,6 +523,11 @@ export const ReadyMessage = z.object({
   payload: z.object({}).strict(),
 });
 
+export const UnreadyMessage = z.object({
+  action: z.literal('unready'),
+  payload: z.object({}).strict(),
+});
+
 export const PlayerActionMessage = z.object({
   action: z.literal('playerAction'),
   payload: PlayerActionPayload,
@@ -569,6 +574,7 @@ export const ClientMessage = z.discriminatedUnion('action', [
   ListGamesMessage,
   JoinGameMessage,
   ReadyMessage,
+  UnreadyMessage,
   PlayerActionMessage,
   RevealCardsMessage,
   ChatMessage,

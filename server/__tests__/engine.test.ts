@@ -5,6 +5,7 @@ import {
   createInitialState,
   addPlayer,
   setPlayerReady,
+  setPlayerUnready,
   startHand,
   processAction,
   toClientGameState,
@@ -952,5 +953,99 @@ describe('Spectator card visibility', () => {
     const clientState = toClientGameState(state, 'player1');
     const spectator = clientState.players.find(p => p.id === 'spectator1');
     expect(spectator?.holeCards).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Player ready / unready
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Player ready/unready', () => {
+  const makeGameConfig = () => ({
+    gameId: 'test-ready',
+    gameName: 'Ready Test',
+    gameType: 'cash' as const,
+    smallBlindAmount: 5,
+    bigBlindAmount: 10,
+    maxPlayers: 6,
+    startingStack: 1000,
+  });
+
+  test('setPlayerReady sets isReady to true', () => {
+    let state = createInitialState(makeGameConfig());
+    state = addPlayer(state, 'p1', 'Alice').state;
+
+    expect(state.players[0].isReady).toBe(false);
+    state = setPlayerReady(state, 'p1');
+    expect(state.players[0].isReady).toBe(true);
+  });
+
+  test('setPlayerUnready sets isReady to false', () => {
+    let state = createInitialState(makeGameConfig());
+    state = addPlayer(state, 'p1', 'Alice').state;
+
+    state = setPlayerReady(state, 'p1');
+    expect(state.players[0].isReady).toBe(true);
+
+    state = setPlayerUnready(state, 'p1');
+    expect(state.players[0].isReady).toBe(false);
+  });
+
+  test('unready after all-ready makes allReady false', () => {
+    let state = createInitialState(makeGameConfig());
+    state = addPlayer(state, 'p1', 'Alice').state;
+    state = addPlayer(state, 'p2', 'Bob').state;
+
+    state = setPlayerReady(state, 'p1');
+    state = setPlayerReady(state, 'p2');
+
+    const players = state.players.filter((p) => p.role === 'player');
+    expect(players.every((p) => p.isReady)).toBe(true);
+
+    state = setPlayerUnready(state, 'p1');
+
+    const playersAfter = state.players.filter((p) => p.role === 'player');
+    expect(playersAfter.every((p) => p.isReady)).toBe(false);
+  });
+
+  test('setPlayerUnready is idempotent', () => {
+    let state = createInitialState(makeGameConfig());
+    state = addPlayer(state, 'p1', 'Alice').state;
+
+    expect(state.players[0].isReady).toBe(false);
+    state = setPlayerUnready(state, 'p1');
+    expect(state.players[0].isReady).toBe(false);
+  });
+
+  test('only affects the targeted player', () => {
+    let state = createInitialState(makeGameConfig());
+    state = addPlayer(state, 'p1', 'Alice').state;
+    state = addPlayer(state, 'p2', 'Bob').state;
+
+    state = setPlayerReady(state, 'p1');
+    state = setPlayerReady(state, 'p2');
+    state = setPlayerUnready(state, 'p1');
+
+    expect(state.players.find((p) => p.id === 'p1')!.isReady).toBe(false);
+    expect(state.players.find((p) => p.id === 'p2')!.isReady).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Unready message schema
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Unready message schema', () => {
+  test('unready message parses correctly', () => {
+    const { ClientMessage } = require('@pokerathome/schema');
+    const result = ClientMessage.safeParse({ action: 'unready', payload: {} });
+    expect(result.success).toBe(true);
+    expect(result.data.action).toBe('unready');
+  });
+
+  test('unready message rejects extra payload fields', () => {
+    const { ClientMessage } = require('@pokerathome/schema');
+    const result = ClientMessage.safeParse({ action: 'unready', payload: { foo: 'bar' } });
+    expect(result.success).toBe(false);
   });
 });

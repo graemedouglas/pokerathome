@@ -204,6 +204,29 @@ export function handleReady(
   gameManager.broadcastLobbyState(session.gameId, sessions);
 }
 
+// ─── unready ────────────────────────────────────────────────────────────────────
+
+export function handleUnready(
+  session: PlayerSession,
+  sessions: SessionManager,
+  gameManager: GameManager,
+  logger: FastifyBaseLogger
+): void {
+  if (!session.gameId) {
+    sessions.send(session.playerId, {
+      action: 'error',
+      payload: { code: 'NOT_IN_GAME', message: 'You are not in a game.' },
+    });
+    return;
+  }
+
+  gameManager.setPlayerUnready(session.gameId, session.playerId);
+  logger.info({ playerId: session.playerId, gameId: session.gameId }, 'Player unready');
+
+  // Broadcast updated lobby state (who's ready, can the game start?)
+  gameManager.broadcastLobbyState(session.gameId, sessions);
+}
+
 // ─── startGame ──────────────────────────────────────────────────────────────────
 
 export function handleStartGame(

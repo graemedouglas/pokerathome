@@ -28,6 +28,8 @@ export class Lobby {
   private removeMessageHandler?: () => void
   private lobbyPlayerList: HTMLElement | null = null
   private lobbyStartBtn: HTMLElement | null = null
+  private lobbyReadyBtn: HTMLElement | null = null
+  private isPlayerReady = false
 
   constructor(ws: WsClient) {
     this.ws = ws
@@ -238,12 +240,16 @@ export class Lobby {
     const subtitle = el('p', 'lobby-subtitle')
     subtitle.textContent = 'Waiting for the game to start...'
 
-    const readyBtn = el('button', 'lobby-btn lobby-btn-primary')
-    readyBtn.textContent = 'Ready!'
-    readyBtn.addEventListener('click', () => {
-      readyBtn.textContent = 'Ready'
-      readyBtn.setAttribute('disabled', 'true')
-      this.ws.send('ready', {})
+    this.isPlayerReady = false
+    this.lobbyReadyBtn = el('button', 'lobby-btn lobby-btn-primary')
+    this.lobbyReadyBtn.textContent = 'Ready!'
+    this.lobbyReadyBtn.addEventListener('click', () => {
+      this.lobbyReadyBtn!.setAttribute('disabled', 'true')
+      if (this.isPlayerReady) {
+        this.ws.send('unready', {})
+      } else {
+        this.ws.send('ready', {})
+      }
     })
 
     // Player list (updated by lobbyUpdate messages)
@@ -266,7 +272,7 @@ export class Lobby {
       this.ws.send('listGames', {})
     })
 
-    container.append(title, subtitle, readyBtn, this.lobbyPlayerList, this.lobbyStartBtn, leaveBtn)
+    container.append(title, subtitle, this.lobbyReadyBtn, this.lobbyPlayerList, this.lobbyStartBtn, leaveBtn)
     this.setContent(container)
   }
 
@@ -291,6 +297,20 @@ export class Lobby {
       this.lobbyStartBtn.style.display = canStart ? '' : 'none'
       this.lobbyStartBtn.textContent = 'Start Game'
       this.lobbyStartBtn.removeAttribute('disabled')
+    }
+
+    // Update ready button to reflect current player's ready state from server
+    const me = players.find((p) => p.id === this.playerId)
+    if (me && this.lobbyReadyBtn) {
+      this.isPlayerReady = me.isReady
+      this.lobbyReadyBtn.removeAttribute('disabled')
+      if (me.isReady) {
+        this.lobbyReadyBtn.textContent = 'Unready'
+        this.lobbyReadyBtn.className = 'lobby-btn lobby-btn-secondary'
+      } else {
+        this.lobbyReadyBtn.textContent = 'Ready!'
+        this.lobbyReadyBtn.className = 'lobby-btn lobby-btn-primary'
+      }
     }
   }
 

@@ -206,6 +206,13 @@ export function setPlayerReady(state: EngineState, playerId: string): EngineStat
   };
 }
 
+export function setPlayerUnready(state: EngineState, playerId: string): EngineState {
+  return {
+    ...state,
+    players: state.players.map((p) => (p.id === playerId ? { ...p, isReady: false } : p)),
+  };
+}
+
 export function setPlayerConnected(state: EngineState, playerId: string, connected: boolean): EngineState {
   return {
     ...state,

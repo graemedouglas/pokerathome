@@ -14,6 +14,7 @@ import {
   addPlayer,
   removePlayer as engineRemovePlayer,
   setPlayerReady,
+  setPlayerUnready,
   setPlayerConnected as engineSetConnected,
   setPlayerSittingOut as engineSetSittingOut,
   startHand,
@@ -323,6 +324,12 @@ export class GameManager {
     const active = this.activeGames.get(gameId);
     if (!active) return;
     active.state = setPlayerReady(active.state, playerId);
+  }
+
+  setPlayerUnready(gameId: string, playerId: string): void {
+    const active = this.activeGames.get(gameId);
+    if (!active || active.state.handInProgress) return;
+    active.state = setPlayerUnready(active.state, playerId);
   }
 
   /** Broadcast lobby state (player list + ready status) to all players in the game. */
