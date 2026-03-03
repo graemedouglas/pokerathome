@@ -15,6 +15,8 @@ import {
 import { NUM_SEATS, SHOWDOWN_DELAY, NEXT_HAND_DELAY } from '../constants'
 import { delay } from '../utils/Animations'
 import { playBlindWarningTick, playBlindLevelUp } from '../audio/sounds'
+import { StatsTracker } from '../stats-tracker'
+import { evaluateHandRank } from '../utils/hand-evaluator'
 
 export type GameControllerEvent =
   | { type: 'gameStarted' }
@@ -62,9 +64,7 @@ export class GameController {
   private mySittingOut = false
 
   // Stats tracking (accumulated across hands)
-  private statsHandsPlayed = 0
-  private statsHandsWon = 0
-  private statsBiggestPot = 0
+  private stats = new StatsTracker()
 
   /** All per-hand state lives here — nuked on HAND_START */
   private hand: HandContext = freshHandContext()
@@ -408,6 +408,10 @@ export class GameController {
         // processes events with delay (animations), so serverState may be stale
         // relative to a more recent pre-chain PLAYER_SITTING_OUT update.
         r.update(uiState)
+
+        // Stats: begin tracking for this hand
+        const myPlayerHS = uiState.players.find(p => p.isHuman)
+        if (myPlayerHS) this.stats.beginHand(myPlayerHS.chips)
         break
       }
 
@@ -431,6 +435,11 @@ export class GameController {
         const flopCards = event.cards.map(adaptCard)
         await r.animateCommunityReveal(flopCards, 0)
         r.update(uiState)
+        // Stats: record flop seen
+        const myPlayerF = uiState.players.find(p => p.isHuman)
+        if (myPlayerF && !myPlayerF.isFolded) {
+          this.stats.recordStreet('flop', myPlayerF.chips)
+        }
         break
       }
 
@@ -439,6 +448,11 @@ export class GameController {
         const turnCard = adaptCard(event.card)
         await r.animateCommunityReveal([turnCard], 3)
         r.update(uiState)
+        // Stats: record turn seen
+        const myPlayerT = uiState.players.find(p => p.isHuman)
+        if (myPlayerT && !myPlayerT.isFolded) {
+          this.stats.recordStreet('turn', myPlayerT.chips)
+        }
         break
       }
 
@@ -447,6 +461,11 @@ export class GameController {
         const riverCard = adaptCard(event.card)
         await r.animateCommunityReveal([riverCard], 4)
         r.update(uiState)
+        // Stats: record river seen
+        const myPlayerR = uiState.players.find(p => p.isHuman)
+        if (myPlayerR && !myPlayerR.isFolded) {
+          this.stats.recordStreet('river', myPlayerR.chips)
+        }
         break
       }
 
@@ -461,6 +480,12 @@ export class GameController {
           const { text: popText, color: popColor } = getActionPopInfo(event.action)
           r.showPlayerActionPop(player.seatIndex, popText, popColor)
         }
+
+        // Stats: detect human fold
+        if (event.playerId === this.myPlayerId && event.action.type === 'FOLD') {
+          this.stats.recordFold()
+        }
+
         r.update(uiState)
         break
       }
@@ -480,6 +505,14 @@ export class GameController {
       case 'SHOWDOWN': {
         await r.animatePhaseChange('showdown')
         r.update(uiState)
+
+        // Stats: record showdown hand rank and street
+        const myShowdownResult = event.results.find((sr: { playerId: string }) => sr.playerId === this.myPlayerId)
+        if (myShowdownResult) {
+          this.stats.recordBestHand(myShowdownResult.handRank, myShowdownResult.handDescription)
+          const myPlayerSD = uiState.players.find(p => p.isHuman)
+          if (myPlayerSD) this.stats.recordStreet('showdown', myPlayerSD.chips)
+        }
         break
       }
 
@@ -501,13 +534,27 @@ export class GameController {
         }
 
         // Track stats
-        this.statsHandsPlayed++
-        this.statsBiggestPot = Math.max(this.statsBiggestPot, uiState.pot)
-        const myPlayer = uiState.players.find(p => p.isHuman)
-        if (myPlayer && uiState.winners.some(w => w.playerIndex === myPlayer.seatIndex)) {
-          this.statsHandsWon++
+        const myPlayerHE = uiState.players.find(p => p.isHuman)
+        const amountWon = uiState.winners
+          .filter(w => myPlayerHE && w.playerIndex === myPlayerHE.seatIndex)
+          .reduce((sum, w) => sum + w.amount, 0)
+        this.stats.endHand(uiState.pot, amountWon, myPlayerHE?.chips ?? 0)
+
+        // Track best hand for non-showdown hands (player still active with cards)
+        if (!this.stats.handFolded && myPlayerHE && myPlayerHE.holeCards.length === 2) {
+          const handResult = evaluateHandRank(myPlayerHE.holeCards, uiState.communityCards)
+          if (handResult) {
+            this.stats.recordBestHand(handResult.rank, handResult.description)
+          }
         }
-        r.updateStats(this.statsHandsPlayed, this.statsHandsWon, this.statsBiggestPot)
+
+        // Update game info and push stats to renderer
+        this.stats.updateGameInfo(
+          uiState.players.length,
+          uiState.smallBlindAmount,
+          uiState.bigBlindAmount,
+        )
+        r.updateStats(this.stats)
 
         await delay(NEXT_HAND_DELAY)
         break

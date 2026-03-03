@@ -383,11 +383,9 @@ export class InfoPanel extends Container {
   }
 
   /** Update stats display */
-  updateStats(handsPlayed: number, handsWon: number, biggestPot: number): void {
-    this.stats.handsPlayed = handsPlayed;
-    this.stats.handsWon = handsWon;
-    this.stats.biggestPot = Math.max(this.stats.biggestPot, biggestPot);
-    this.statsText.text = this.stats.formatStats();
+  updateStats(stats: StatsTracker): void {
+    this.stats = stats;
+    this.statsText.text = stats.formatStats();
   }
 
   /** Update dynamic game info (blinds, player count) */

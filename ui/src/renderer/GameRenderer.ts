@@ -536,8 +536,8 @@ export class GameRenderer {
     this.chatPanel?.addMessage(msg);
   }
 
-  updateStats(handsPlayed: number, handsWon: number, biggestPot: number): void {
-    this.infoPanel.updateStats(handsPlayed, handsWon, biggestPot);
+  updateStats(stats: import('../stats-tracker').StatsTracker): void {
+    this.infoPanel.updateStats(stats);
   }
 
   updateHandProbabilities(formation: Record<string, number>, winEquity: Record<string, number>): void {
