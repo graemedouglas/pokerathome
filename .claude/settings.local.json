@@ -31,7 +31,10 @@
       "Bash(gh api search/code -X GET -f q=\"chance repo:pokerth/pokerth\" --jq '.items[] | .name + \"\" : \"\" + .path')",
       "Bash(gh api \"search/code?q=chance+repo:pokerth/pokerth\" --paginate)",
       "Bash(gh api \"search/code?q=probability+repo:pokerth/pokerth\" --paginate)",
-      "Bash(gh api \"search/code?q=odds+repo:pokerth/pokerth\" --paginate)"
+      "Bash(gh api \"search/code?q=odds+repo:pokerth/pokerth\" --paginate)",
+      "Read(//c/Users/gdoug/AppData/Local/Temp/claude/c--Users-gdoug-code-pokerathome/tasks/**)",
+      "Read(//c/Users/gdoug/**)",
+      "Bash(npm ls jest ts-jest)"
     ],
     "additionalDirectories": [
       "C:\\Users\\gdoug\\code\\pokerathome\\.claude"

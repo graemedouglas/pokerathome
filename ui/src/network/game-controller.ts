@@ -61,6 +61,11 @@ export class GameController {
   private sitOutPending = false
   private mySittingOut = false
 
+  // Stats tracking (accumulated across hands)
+  private statsHandsPlayed = 0
+  private statsHandsWon = 0
+  private statsBiggestPot = 0
+
   /** All per-hand state lives here — nuked on HAND_START */
   private hand: HandContext = freshHandContext()
 
@@ -494,6 +499,16 @@ export class GameController {
           }
           await r.animateWinners(winnerIndices)
         }
+
+        // Track stats
+        this.statsHandsPlayed++
+        this.statsBiggestPot = Math.max(this.statsBiggestPot, uiState.pot)
+        const myPlayer = uiState.players.find(p => p.isHuman)
+        if (myPlayer && uiState.winners.some(w => w.playerIndex === myPlayer.seatIndex)) {
+          this.statsHandsWon++
+        }
+        r.updateStats(this.statsHandsPlayed, this.statsHandsWon, this.statsBiggestPot)
+
         await delay(NEXT_HAND_DELAY)
         break
       }

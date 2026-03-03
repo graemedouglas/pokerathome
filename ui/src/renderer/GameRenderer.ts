@@ -455,6 +455,13 @@ export class GameRenderer {
 
     // Update spectator panel
     this.spectatorPanel.update(state.spectators);
+
+    // Keep game info (blinds, player count) current
+    this.infoPanel.updateGameInfo(
+      state.players.length,
+      state.smallBlindAmount,
+      state.bigBlindAmount,
+    );
   }
 
   /** Update sit-out button state from server confirmation. */

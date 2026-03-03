@@ -1,5 +1,6 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import { COLORS, CANVAS_HEIGHT } from '../constants';
+import { StatsTracker } from '../stats-tracker';
 
 const PANEL_W = 280;
 const PANEL_H = 340;
@@ -38,9 +39,7 @@ export class InfoPanel extends Container {
   private expanded = false;
 
   // Stats tracking
-  private handsPlayed = 0;
-  private handsWon = 0;
-  private biggestPot = 0;
+  private stats = new StatsTracker();
 
   // Chance tab
   private chanceRows: Map<string, { makePctText: Text; winPctText: Text; bar: Graphics }> = new Map();
@@ -193,7 +192,7 @@ export class InfoPanel extends Container {
     this.panel.addChild(statsContainer);
 
     this.statsText = new Text({
-      text: this.getStatsString(),
+      text: this.stats.formatStats(),
       style: {
         fontSize: 11,
         fill: COLORS.textLight,
@@ -385,10 +384,16 @@ export class InfoPanel extends Container {
 
   /** Update stats display */
   updateStats(handsPlayed: number, handsWon: number, biggestPot: number): void {
-    this.handsPlayed = handsPlayed;
-    this.handsWon = handsWon;
-    this.biggestPot = Math.max(this.biggestPot, biggestPot);
-    this.statsText.text = this.getStatsString();
+    this.stats.handsPlayed = handsPlayed;
+    this.stats.handsWon = handsWon;
+    this.stats.biggestPot = Math.max(this.stats.biggestPot, biggestPot);
+    this.statsText.text = this.stats.formatStats();
+  }
+
+  /** Update dynamic game info (blinds, player count) */
+  updateGameInfo(playerCount: number, smallBlind: number, bigBlind: number): void {
+    this.stats.updateGameInfo(playerCount, smallBlind, bigBlind);
+    this.statsText.text = this.stats.formatStats();
   }
 
   /** Update hand probability display with formation probability and win equity */
@@ -432,18 +437,4 @@ export class InfoPanel extends Container {
     }
   }
 
-  private getStatsString(): string {
-    const winRate = this.handsPlayed > 0
-      ? ((this.handsWon / this.handsPlayed) * 100).toFixed(1)
-      : '0.0';
-    return [
-      `Hands Played: ${this.handsPlayed}`,
-      `Hands Won: ${this.handsWon}`,
-      `Win Rate: ${winRate}%`,
-      `Biggest Pot: $${this.biggestPot}`,
-      '',
-      'Blinds: $5 / $10',
-      'Players: 6',
-    ].join('\n');
-  }
 }
