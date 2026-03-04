@@ -65,6 +65,7 @@ interface ActiveGame {
   spectatorVisibility: string; // Per-game spectator card visibility mode
   showdownVisibility: string; // Per-game showdown card reveal mode
   recorder: ReplayRecorder | null; // Replay recording
+  turnStartedAt: number | null; // Date.now() when action timer started
   // Tournament-specific fields
   blindTimer: ReturnType<typeof setTimeout> | null;
   blindWarningTimers: ReturnType<typeof setTimeout>[];
@@ -165,6 +166,7 @@ export class GameManager {
       spectatorVisibility: row.spectator_visibility ?? 'showdown',
       showdownVisibility: row.showdown_visibility ?? 'standard',
       recorder: new ReplayRecorder(this.createGameConfig(row)),
+      turnStartedAt: null,
       blindTimer: null,
       blindWarningTimers: [],
       isPaused: false,
@@ -703,11 +705,21 @@ export class GameManager {
       'spectator-reconnect',
     );
 
+    let timeToAct: number | undefined;
+    if (active.state.activePlayerId === playerId) {
+      if (active.turnStartedAt) {
+        const elapsed = Date.now() - active.turnStartedAt;
+        timeToAct = Math.max(0, config.ACTION_TIMEOUT_MS - elapsed);
+      } else {
+        timeToAct = config.ACTION_TIMEOUT_MS;
+      }
+    }
+
     return buildGameStatePayload(
       stateToSend,
       reconnectEvent,
       playerId,
-      active.state.activePlayerId === playerId ? config.ACTION_TIMEOUT_MS : undefined,
+      timeToAct,
       active.spectatorVisibility,
       this.getTournamentOverrides(active)
     );
@@ -882,6 +894,7 @@ export class GameManager {
 
     this.clearTimers(active);
 
+    active.turnStartedAt = Date.now();
     const timeoutMs = config.ACTION_TIMEOUT_MS;
 
     // Time warnings at 50% and 80%
@@ -951,6 +964,7 @@ export class GameManager {
       clearTimeout(timer);
     }
     active.warningTimers = [];
+    active.turnStartedAt = null;
   }
 
   private clearBlindTimers(active: ActiveGame): void {

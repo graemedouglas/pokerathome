@@ -318,6 +318,38 @@ describe('Already in active game — choice flow', () => {
     expect(msg.payload.code).toBe('NOT_IN_GAME');
   });
 
+  test('handleRejoinGame sends reduced timeToActMs when reconnecting mid-turn', () => {
+    jest.useFakeTimers();
+    try {
+      const { p1, p2 } = startGameWithTwoPlayers();
+
+      // Find which player is active
+      const state = gameManager.getActiveGameState(gameId)!;
+      const activeId = state.activePlayerId;
+      expect(activeId).toBeDefined();
+
+      const activePlayer = activeId === p1.player.id ? p1 : p2;
+
+      // Advance time by 10 seconds (timer started at game start)
+      jest.advanceTimersByTime(10_000);
+
+      // Clear messages and rejoin
+      activePlayer.socket._messages.length = 0;
+      handleRejoinGame(activePlayer.session, sessions, gameManager, mockLogger);
+
+      const msg = getMessageByAction(activePlayer.socket, 'rejoinedGame');
+      expect(msg).toBeDefined();
+      expect(msg.payload.currentGame.actionRequest).toBeDefined();
+
+      const timeToAct = msg.payload.currentGame.actionRequest.timeToActMs;
+      // Should be approximately 20000ms (30000 - 10000), allow some tolerance
+      expect(timeToAct).toBeLessThanOrEqual(20_000);
+      expect(timeToAct).toBeGreaterThan(15_000);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('leaveGame then joinGame works for switching active games', () => {
     const p1 = joinPlayer('Alice');
 
