@@ -15,6 +15,7 @@ import { GameManager } from './game-manager.js';
 import { ReplayGameManager } from './replay/index.js';
 import { registerWebSocket } from './ws/server.js';
 import { registerAdminRoutes } from './admin-api.js';
+import { registerAuthRoutes, adminAuthHook } from './admin-auth.js';
 
 // Lightweight startup tracer — writes to logs/startup.log so we can diagnose
 // health-check failures even when the pino transport itself is the problem.
@@ -83,8 +84,10 @@ async function main() {
     trace('active games loaded');
 
     // Register routes
-    trace('registering routes (ws, admin, health)');
+    trace('registering routes (ws, auth, admin, health)');
     registerWebSocket(app, sessionManager, gameManager, logger, replayGameManager);
+    registerAuthRoutes(app);
+    app.addHook('onRequest', adminAuthHook);
     registerAdminRoutes(app, gameManager, sessionManager, logger, replayGameManager);
     app.get('/health', async () => ({ status: 'ok', sessions: sessionManager.size }));
     trace('routes registered');

@@ -27,6 +27,9 @@ const envSchema = z.object({
 
   /** Directory to store replay files */
   REPLAY_DIR: z.string().default('./replays/'),
+
+  /** Password required to access admin API */
+  ADMIN_PASSWORD: z.string().min(1).default('admin'),
 });
 
 export type Config = z.infer<typeof envSchema>;

@@ -1,5 +1,82 @@
 const API = '/api';
 
+// ─── Auth token management ──────────────────────────────────────────────────────
+
+function getToken(): string | null {
+  return sessionStorage.getItem('adminToken');
+}
+
+function setToken(token: string): void {
+  sessionStorage.setItem('adminToken', token);
+}
+
+function clearToken(): void {
+  sessionStorage.removeItem('adminToken');
+}
+
+function showLogin(): void {
+  document.getElementById('login-overlay')!.classList.remove('hidden');
+  document.getElementById('dashboard')!.classList.remove('visible');
+}
+
+function showDashboard(): void {
+  document.getElementById('login-overlay')!.classList.add('hidden');
+  document.getElementById('dashboard')!.classList.add('visible');
+}
+
+/** Wrapper around fetch that injects the auth token and handles 401s */
+async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = getToken();
+  const headers = new Headers(options.headers);
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401 && !url.includes('/api/auth/')) {
+    clearToken();
+    showLogin();
+  }
+  return res;
+}
+
+// ─── Login / Logout ─────────────────────────────────────────────────────────────
+
+document.getElementById('login-form')!.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const passwordInput = document.getElementById('login-password') as HTMLInputElement;
+  const errorEl = document.getElementById('login-error')!;
+  errorEl.textContent = '';
+
+  try {
+    const res = await fetch(`${API}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: passwordInput.value }),
+    });
+    if (!res.ok) {
+      errorEl.textContent = 'Invalid password';
+      return;
+    }
+    const { token } = await res.json();
+    setToken(token);
+    passwordInput.value = '';
+    showDashboard();
+    refresh();
+  } catch {
+    errorEl.textContent = 'Connection failed';
+  }
+});
+
+document.getElementById('logout-btn')!.addEventListener('click', async () => {
+  try {
+    await apiFetch(`${API}/auth/logout`, { method: 'POST' });
+  } catch { /* ignore */ }
+  clearToken();
+  showLogin();
+});
+
+// ─── Types ───────────────────────────────────────────────────────────────────────
+
 interface Game {
   id: string;
   name: string;
@@ -30,13 +107,13 @@ function toast(message: string, isError = false) {
 // ─── API calls ──────────────────────────────────────────────────────────────────
 
 async function fetchGames(): Promise<Game[]> {
-  const res = await fetch(`${API}/games`);
+  const res = await apiFetch(`${API}/games`);
   if (!res.ok) throw new Error('Failed to fetch games');
   return res.json();
 }
 
 async function createGame(data: Record<string, unknown>) {
-  const res = await fetch(`${API}/games`, {
+  const res = await apiFetch(`${API}/games`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -49,7 +126,7 @@ async function createGame(data: Record<string, unknown>) {
 }
 
 async function pauseGame(gameId: string) {
-  const res = await fetch(`${API}/games/${gameId}/pause`, { method: 'POST' });
+  const res = await apiFetch(`${API}/games/${gameId}/pause`, { method: 'POST' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to pause game');
@@ -57,7 +134,7 @@ async function pauseGame(gameId: string) {
 }
 
 async function resumeGame(gameId: string) {
-  const res = await fetch(`${API}/games/${gameId}/resume`, { method: 'POST' });
+  const res = await apiFetch(`${API}/games/${gameId}/resume`, { method: 'POST' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to resume game');
@@ -65,7 +142,7 @@ async function resumeGame(gameId: string) {
 }
 
 async function startGame(gameId: string) {
-  const res = await fetch(`${API}/games/${gameId}/start`, { method: 'POST' });
+  const res = await apiFetch(`${API}/games/${gameId}/start`, { method: 'POST' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to start game');
@@ -73,7 +150,7 @@ async function startGame(gameId: string) {
 }
 
 async function setSpectatorVisibility(gameId: string, visibility: string) {
-  const res = await fetch(`${API}/games/${gameId}/spectator-visibility`, {
+  const res = await apiFetch(`${API}/games/${gameId}/spectator-visibility`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ spectatorVisibility: visibility }),
@@ -85,7 +162,7 @@ async function setSpectatorVisibility(gameId: string, visibility: string) {
 }
 
 async function deleteGame(gameId: string) {
-  const res = await fetch(`${API}/games/${gameId}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API}/games/${gameId}`, { method: 'DELETE' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to delete game');
@@ -93,7 +170,7 @@ async function deleteGame(gameId: string) {
 }
 
 async function addBot(gameId: string, botType: string) {
-  const res = await fetch(`${API}/games/${gameId}/add-bot`, {
+  const res = await apiFetch(`${API}/games/${gameId}/add-bot`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ botType }),
@@ -115,13 +192,13 @@ interface ReplayInfo {
 }
 
 async function fetchReplays(): Promise<ReplayInfo[]> {
-  const res = await fetch(`${API}/replays`);
+  const res = await apiFetch(`${API}/replays`);
   if (!res.ok) throw new Error('Failed to fetch replays');
   return res.json();
 }
 
 async function createReplayGame(filePath: string): Promise<{ replayGameId: string }> {
-  const res = await fetch(`${API}/replays/create-game`, {
+  const res = await apiFetch(`${API}/replays/create-game`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ filePath }),
@@ -134,7 +211,7 @@ async function createReplayGame(filePath: string): Promise<{ replayGameId: strin
 }
 
 async function uploadReplayFile(data: unknown): Promise<void> {
-  const res = await fetch(`${API}/replays/upload`, {
+  const res = await apiFetch(`${API}/replays/upload`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -426,6 +503,25 @@ document.getElementById('replay-upload')?.addEventListener('change', async (e) =
   }
 });
 
-// Auto-refresh every 5s
-refresh();
-setInterval(refresh, 5000);
+// ─── Init: check auth state ─────────────────────────────────────────────────────
+
+async function init() {
+  const token = getToken();
+  if (token) {
+    try {
+      const res = await fetch(`${API}/auth/check`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (res.ok) {
+        showDashboard();
+        refresh();
+        setInterval(refresh, 5000);
+        return;
+      }
+    } catch { /* server unreachable */ }
+  }
+  clearToken();
+  showLogin();
+}
+
+init();

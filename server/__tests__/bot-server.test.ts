@@ -12,8 +12,10 @@ import fs from 'node:fs'
 const TEST_PORT = 13579
 const SERVER_URL = `http://127.0.0.1:${TEST_PORT}`
 const DB_PATH = path.resolve(__dirname, '..', 'test-bot-server.db')
+const ADMIN_PASSWORD = 'test-pass'
 
 let server: ChildProcess
+let authToken: string
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -28,6 +30,24 @@ async function waitForServer(maxAttempts = 30): Promise<void> {
     await sleep(200)
   }
   throw new Error('Server failed to start')
+}
+
+async function login(): Promise<string> {
+  const res = await fetch(`${SERVER_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ADMIN_PASSWORD }),
+  })
+  if (!res.ok) throw new Error('Login failed')
+  const { token } = await res.json()
+  return token
+}
+
+/** Authenticated fetch helper */
+function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(options.headers)
+  headers.set('Authorization', `Bearer ${authToken}`)
+  return fetch(url, { ...options, headers })
 }
 
 function cleanDb() {
@@ -62,6 +82,7 @@ beforeAll(async () => {
       HAND_DELAY_MS: '500',
       MIN_PLAYERS_TO_START: '2',
       SPECTATOR_CARD_VISIBILITY: 'delayed',
+      ADMIN_PASSWORD,
     },
     stdio: 'pipe',
     shell: true, // Required on Windows where npx is npx.cmd
@@ -76,6 +97,7 @@ beforeAll(async () => {
   })
 
   await waitForServer()
+  authToken = await login()
 }, 15000)
 
 afterAll(async () => {
@@ -103,7 +125,7 @@ afterAll(async () => {
 })
 
 async function createGame(): Promise<string> {
-  const res = await fetch(`${SERVER_URL}/api/games`, {
+  const res = await authFetch(`${SERVER_URL}/api/games`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -120,13 +142,13 @@ async function createGame(): Promise<string> {
 }
 
 async function getGame(gameId: string): Promise<{ players: Array<{ player_id: string }>; status: string }> {
-  const res = await fetch(`${SERVER_URL}/api/games/${gameId}`)
+  const res = await authFetch(`${SERVER_URL}/api/games/${gameId}`)
   expect(res.status).toBe(200)
   return res.json()
 }
 
 async function startGame(gameId: string): Promise<void> {
-  const res = await fetch(`${SERVER_URL}/api/games/${gameId}/start`, {
+  const res = await authFetch(`${SERVER_URL}/api/games/${gameId}/start`, {
     method: 'POST',
   })
   expect(res.status).toBe(200)
@@ -139,7 +161,7 @@ async function startGame(gameId: string): Promise<void> {
 describe('Add bot via admin API', () => {
   test('rejects unknown bot type', async () => {
     const gameId = await createGame()
-    const res = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+    const res = await authFetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ botType: 'nonexistent' }),
@@ -148,7 +170,7 @@ describe('Add bot via admin API', () => {
   })
 
   test('rejects adding bot to non-existent game', async () => {
-    const res = await fetch(`${SERVER_URL}/api/games/00000000-0000-0000-0000-000000000000/add-bot`, {
+    const res = await authFetch(`${SERVER_URL}/api/games/00000000-0000-0000-0000-000000000000/add-bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ botType: 'calling-station' }),
@@ -159,7 +181,7 @@ describe('Add bot via admin API', () => {
   test('calling-station bot connects, joins, and readies up', async () => {
     const gameId = await createGame()
 
-    const res = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+    const res = await authFetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ botType: 'calling-station' }),
@@ -180,7 +202,7 @@ describe('Add bot via admin API', () => {
   test('tag-bot with custom name connects and joins', async () => {
     const gameId = await createGame()
 
-    const res = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+    const res = await authFetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ botType: 'tag-bot', displayName: 'Aggressive Alice' }),
@@ -200,14 +222,14 @@ describe('Add bot via admin API', () => {
     const gameId = await createGame()
 
     // Add two bots — they auto-ready on join
-    const res1 = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+    const res1 = await authFetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ botType: 'calling-station' }),
     })
     expect(res1.status).toBe(201)
 
-    const res2 = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+    const res2 = await authFetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ botType: 'tag-bot' }),
@@ -227,14 +249,14 @@ describe('Add bot via admin API', () => {
     const gameId = await createGame()
 
     // Add two bots
-    const res1 = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+    const res1 = await authFetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ botType: 'calling-station' }),
     })
     expect(res1.status).toBe(201)
 
-    const res2 = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+    const res2 = await authFetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ botType: 'tag-bot' }),
@@ -251,7 +273,7 @@ describe('Add bot via admin API', () => {
     // Wait for at least one hand to complete
     await sleep(4000)
 
-    const res = await fetch(`${SERVER_URL}/api/games/${gameId}`)
+    const res = await authFetch(`${SERVER_URL}/api/games/${gameId}`)
     expect(res.status).toBe(200)
     const updated = await res.json()
     expect(['in_progress', 'completed']).toContain(updated.status)
@@ -261,7 +283,7 @@ describe('Add bot via admin API', () => {
 describe('Tournament bot game', () => {
   test('two bots play a tournament game after admin start', async () => {
     // Create a tournament game
-    const res = await fetch(`${SERVER_URL}/api/games`, {
+    const res = await authFetch(`${SERVER_URL}/api/games`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -280,14 +302,14 @@ describe('Tournament bot game', () => {
     const gameId = game.id
 
     // Add two bots
-    const res1 = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+    const res1 = await authFetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ botType: 'tag-bot', displayName: 'TAG Tourney' }),
     })
     expect(res1.status).toBe(201)
 
-    const res2 = await fetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+    const res2 = await authFetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ botType: 'calling-station', displayName: 'CS Tourney' }),
@@ -304,7 +326,7 @@ describe('Tournament bot game', () => {
     // Wait for at least one hand to complete
     await sleep(4000)
 
-    const statusRes = await fetch(`${SERVER_URL}/api/games/${gameId}`)
+    const statusRes = await authFetch(`${SERVER_URL}/api/games/${gameId}`)
     expect(statusRes.status).toBe(200)
     const updated = await statusRes.json()
     expect(['in_progress', 'completed']).toContain(updated.status)
