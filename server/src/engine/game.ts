@@ -15,6 +15,12 @@ import type {
   BlindLevel,
   TournamentState,
 } from '@pokerathome/schema';
+import {
+  RUNOUT_PAUSE_FLOP,
+  RUNOUT_PAUSE_TURN,
+  RUNOUT_PAUSE_RIVER,
+  RUNOUT_PAUSE_SHOWDOWN,
+} from '@pokerathome/schema';
 import { createDeck, shuffle, deal } from './deck.js';
 import { evaluateShowdown } from './hand-evaluator.js';
 import { calculatePots, distributePots } from './pot.js';
@@ -1098,4 +1104,33 @@ export function cloneState(state: EngineState): EngineState {
     handEvents: [...state.handEvents],
     blindSchedule: [...state.blindSchedule],
   };
+}
+
+/**
+ * Compute extra inter-hand delay needed for client-side runout animations.
+ * If community cards were dealt after the last player action, it was an
+ * automated all-in runout and the client needs time for dramatic pauses.
+ * Returns 0 for non-runout hands.
+ */
+export function getRunoutAnimationDelay(handEvents: Event[]): number {
+  let lastActionIdx = -1;
+  for (let i = handEvents.length - 1; i >= 0; i--) {
+    if (handEvents[i].type === 'PLAYER_ACTION') { lastActionIdx = i; break; }
+  }
+  if (lastActionIdx === -1) return 0;
+
+  const autoEvents = handEvents.slice(lastActionIdx + 1);
+  let extra = 0;
+  const hasAutoFlop  = autoEvents.some(e => e.type === 'FLOP');
+  const hasAutoTurn  = autoEvents.some(e => e.type === 'TURN');
+  const hasAutoRiver = autoEvents.some(e => e.type === 'RIVER');
+  if (hasAutoFlop)  extra += RUNOUT_PAUSE_FLOP;
+  if (hasAutoTurn)  extra += RUNOUT_PAUSE_TURN;
+  if (hasAutoRiver) extra += RUNOUT_PAUSE_RIVER;
+  // SHOWDOWN pause only applies when there was an actual community card runout
+  // (SHOWDOWN always follows last action, even in normal hands)
+  if ((hasAutoFlop || hasAutoTurn || hasAutoRiver) && autoEvents.some(e => e.type === 'SHOWDOWN')) {
+    extra += RUNOUT_PAUSE_SHOWDOWN;
+  }
+  return extra;
 }

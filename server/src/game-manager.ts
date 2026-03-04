@@ -23,6 +23,7 @@ import {
   toClientGameState,
   buildGameStatePayload,
   cloneState,
+  getRunoutAnimationDelay,
   type EngineState,
   type Transition,
   type GameConfig,
@@ -862,10 +863,11 @@ export class GameManager {
       return;
     }
 
-    // Schedule next hand after delay
+    // Schedule next hand after delay (longer after all-in runouts for dramatic animations)
+    const runoutExtra = getRunoutAnimationDelay(active.state.handEvents);
     setTimeout(() => {
       this.startNextHand(gameId, sessions);
-    }, config.HAND_DELAY_MS);
+    }, config.HAND_DELAY_MS + runoutExtra);
   }
 
   // ─── Action timer ──────────────────────────────────────────────────────────

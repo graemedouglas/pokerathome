@@ -10,6 +10,10 @@ export class SettingsPanel extends Container {
   private panel: Container;
   private toggleKnob!: Graphics;
   private toggleBg!: Graphics;
+  private sfxToggleBg!: Graphics;
+  private sfxToggleKnob!: Graphics;
+  private ttsToggleBg!: Graphics;
+  private ttsToggleKnob!: Graphics;
   private avatarSprites: Container[] = [];
   private selectedBorder: Graphics | null = null;
   private app: AppLike;
@@ -38,7 +42,7 @@ export class SettingsPanel extends Container {
     this.addChild(this.panel);
 
     const PW = 500;
-    const PH = 420;
+    const PH = 520;
 
     // Panel background
     const bg = new Graphics();
@@ -126,8 +130,88 @@ export class SettingsPanel extends Container {
     toggleDesc.y = toggleY + 16;
     this.panel.addChild(toggleDesc);
 
+    // --- Sound Effects Toggle ---
+    const sfxToggleY = -PH / 2 + 150;
+    const sfxLabel = new Text({
+      text: 'Sound Effects',
+      style: { fontSize: 16, fill: COLORS.textLight, fontFamily: 'Arial' },
+    });
+    sfxLabel.anchor.set(0, 0.5);
+    sfxLabel.x = -PW / 2 + 40;
+    sfxLabel.y = sfxToggleY;
+    this.panel.addChild(sfxLabel);
+
+    const sfxToggleContainer = new Container();
+    sfxToggleContainer.x = PW / 2 - 70;
+    sfxToggleContainer.y = sfxToggleY;
+    sfxToggleContainer.eventMode = 'static';
+    sfxToggleContainer.cursor = 'pointer';
+
+    this.sfxToggleBg = new Graphics();
+    this.drawToggle(this.sfxToggleBg, GameSettings.soundEffects);
+    sfxToggleContainer.addChild(this.sfxToggleBg);
+
+    this.sfxToggleKnob = new Graphics();
+    this.drawKnob(this.sfxToggleKnob, GameSettings.soundEffects);
+    sfxToggleContainer.addChild(this.sfxToggleKnob);
+
+    sfxToggleContainer.on('pointerdown', () => {
+      GameSettings.soundEffects = !GameSettings.soundEffects;
+      this.drawToggle(this.sfxToggleBg, GameSettings.soundEffects);
+      this.drawKnob(this.sfxToggleKnob, GameSettings.soundEffects);
+    });
+    this.panel.addChild(sfxToggleContainer);
+
+    const sfxDesc = new Text({
+      text: 'Card, chip, and action sound effects',
+      style: { fontSize: 11, fill: COLORS.textMuted, fontFamily: 'Arial' },
+    });
+    sfxDesc.x = -PW / 2 + 40;
+    sfxDesc.y = sfxToggleY + 16;
+    this.panel.addChild(sfxDesc);
+
+    // --- Dealer Narration Toggle ---
+    const ttsToggleY = -PH / 2 + 200;
+    const ttsLabel = new Text({
+      text: 'Dealer Narration',
+      style: { fontSize: 16, fill: COLORS.textLight, fontFamily: 'Arial' },
+    });
+    ttsLabel.anchor.set(0, 0.5);
+    ttsLabel.x = -PW / 2 + 40;
+    ttsLabel.y = ttsToggleY;
+    this.panel.addChild(ttsLabel);
+
+    const ttsToggleContainer = new Container();
+    ttsToggleContainer.x = PW / 2 - 70;
+    ttsToggleContainer.y = ttsToggleY;
+    ttsToggleContainer.eventMode = 'static';
+    ttsToggleContainer.cursor = 'pointer';
+
+    this.ttsToggleBg = new Graphics();
+    this.drawToggle(this.ttsToggleBg, GameSettings.dealerNarration);
+    ttsToggleContainer.addChild(this.ttsToggleBg);
+
+    this.ttsToggleKnob = new Graphics();
+    this.drawKnob(this.ttsToggleKnob, GameSettings.dealerNarration);
+    ttsToggleContainer.addChild(this.ttsToggleKnob);
+
+    ttsToggleContainer.on('pointerdown', () => {
+      GameSettings.dealerNarration = !GameSettings.dealerNarration;
+      this.drawToggle(this.ttsToggleBg, GameSettings.dealerNarration);
+      this.drawKnob(this.ttsToggleKnob, GameSettings.dealerNarration);
+    });
+    this.panel.addChild(ttsToggleContainer);
+
+    const ttsDesc = new Text({
+      text: 'TTS voice narrates game actions (browser speech)',
+      style: { fontSize: 11, fill: COLORS.textMuted, fontFamily: 'Arial' },
+    });
+    ttsDesc.x = -PW / 2 + 40;
+    ttsDesc.y = ttsToggleY + 16;
+    this.panel.addChild(ttsDesc);
+
     // --- Avatar Picker ---
-    const avatarHeaderY = -PH / 2 + 160;
+    const avatarHeaderY = -PH / 2 + 260;
     const avatarLabel = new Text({
       text: 'Your Avatar',
       style: { fontSize: 16, fill: COLORS.textLight, fontFamily: 'Arial' },
@@ -194,23 +278,35 @@ export class SettingsPanel extends Container {
     }
   }
 
+  private drawToggle(bg: Graphics, on: boolean): void {
+    bg.clear();
+    bg.roundRect(0, -10, 44, 20, 10);
+    bg.fill(on ? 0x16a34a : 0x555555);
+  }
+
+  private drawKnob(knob: Graphics, on: boolean): void {
+    knob.clear();
+    knob.circle(on ? 34 : 10, 0, 8);
+    knob.fill(0xffffff);
+  }
+
   private drawToggleBg(on: boolean): void {
-    this.toggleBg.clear();
-    this.toggleBg.roundRect(0, -10, 44, 20, 10);
-    this.toggleBg.fill(on ? 0x16a34a : 0x555555);
+    this.drawToggle(this.toggleBg, on);
   }
 
   private drawToggleKnob(on: boolean): void {
-    this.toggleKnob.clear();
-    this.toggleKnob.circle(on ? 34 : 10, 0, 8);
-    this.toggleKnob.fill(0xffffff);
+    this.drawKnob(this.toggleKnob, on);
   }
 
   show(): void {
     this.visible = true;
-    // Refresh toggle state
+    // Refresh all toggle states
     this.drawToggleBg(GameSettings.fourColorSuits);
     this.drawToggleKnob(GameSettings.fourColorSuits);
+    this.drawToggle(this.sfxToggleBg, GameSettings.soundEffects);
+    this.drawKnob(this.sfxToggleKnob, GameSettings.soundEffects);
+    this.drawToggle(this.ttsToggleBg, GameSettings.dealerNarration);
+    this.drawKnob(this.ttsToggleKnob, GameSettings.dealerNarration);
   }
 
   hide(): void {

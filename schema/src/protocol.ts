@@ -670,3 +670,14 @@ export const ServerMessage = z.discriminatedUnion('action', [
   LobbyUpdateServerMessage,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Shared timing constants
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** All-in runout dramatic pause durations (ms).
+ *  Used by client for animations and by server to compute inter-hand delay. */
+export const RUNOUT_PAUSE_FLOP = 1500;
+export const RUNOUT_PAUSE_TURN = 3000;
+export const RUNOUT_PAUSE_RIVER = 3000;
+export const RUNOUT_PAUSE_SHOWDOWN = 4000;

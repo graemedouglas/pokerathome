@@ -12,9 +12,17 @@ import {
   extractBlindPlayers, extractWinners, adaptCard,
   type AdapterContext,
 } from '../adapter'
-import { NUM_SEATS, SHOWDOWN_DELAY, NEXT_HAND_DELAY } from '../constants'
+import {
+  NUM_SEATS, SHOWDOWN_DELAY, NEXT_HAND_DELAY,
+  RUNOUT_PAUSE_FLOP, RUNOUT_PAUSE_TURN, RUNOUT_PAUSE_RIVER, RUNOUT_PAUSE_SHOWDOWN,
+} from '../constants'
 import { delay } from '../utils/Animations'
-import { playBlindWarningTick, playBlindLevelUp } from '../audio/sounds'
+import {
+  playBlindWarningTick, playBlindLevelUp, playBlindDingDong, playCountdownTick,
+  playCardShuffle, playCardDeal, playCardFlip,
+  playCheckSound, playBetSound, playCallSound, playRaiseSound, playAllInSound, playFoldSound,
+} from '../audio/sounds'
+import { speak, cancelSpeech, cardToWords } from '../audio/dealer-narration'
 import { StatsTracker } from '../stats-tracker'
 import { evaluateHandRank } from '../utils/hand-evaluator'
 
@@ -45,6 +53,12 @@ function freshHandContext(): HandContext {
     showdownResults: new Map(),
     showdownHoleCards: new Map(),
   }
+}
+
+/** Detect when all remaining players are all-in (runout situation). */
+function isAllInRunout(serverState: ServerGameState): boolean {
+  const active = serverState.players.filter(p => !p.folded)
+  return active.length > 1 && active.every(p => p.stack === 0)
 }
 
 export class GameController {
@@ -105,7 +119,12 @@ export class GameController {
 
       // Handle blindWarning synchronously — audio tick
       if (msg.action === 'blindWarning') {
-        playBlindWarningTick()
+        const bwPayload = msg.payload as { remainingMs?: number }
+        if (bwPayload.remainingMs != null && bwPayload.remainingMs <= 5000) {
+          playCountdownTick()
+        } else {
+          playBlindWarningTick()
+        }
         return
       }
 
@@ -403,8 +422,11 @@ export class GameController {
           this.started = true
           this.emit({ type: 'gameStarted' })
         }
+        cancelSpeech()
+        playCardShuffle()
         r.resetForNewHand()
         r.addLog(`--- Hand #${event.handNumber} ---`)
+        speak(`Hand ${event.handNumber}`)
         // Note: sit-out button is synced by the pre-chain PLAYER_SITTING_OUT handler
         // and the one-time sync on first gameState. Do NOT resync here — the chain
         // processes events with delay (animations), so serverState may be stale
@@ -422,11 +444,15 @@ export class GameController {
         const bbName = serverState.players.find(p => p.id === event.bigBlind.playerId)?.displayName ?? '?'
         r.addLog(`${sbName} posts SB $${event.smallBlind.amount}`)
         r.addLog(`${bbName} posts BB $${event.bigBlind.amount}`)
+        speak(`${sbName} posts small blind ${event.smallBlind.amount}. ${bbName} posts big blind ${event.bigBlind.amount}.`)
         r.update(uiState)
         break
       }
 
       case 'DEAL': {
+        playCardDeal()
+        setTimeout(() => playCardDeal(), 80) // second card staggered
+        speak('Cards dealt.')
         await r.animatePhaseChange('preflop')
         r.update(uiState)
         break
@@ -435,44 +461,64 @@ export class GameController {
       case 'FLOP': {
         await r.animatePhaseChange('flop')
         const flopCards = event.cards.map(adaptCard)
+        playCardFlip()
         await r.animateCommunityReveal(flopCards, 0)
         r.update(uiState)
+        speak(`The flop: ${event.cards.map((c: string) => cardToWords(c)).join(', ')}.`)
         // Stats: record flop seen
         const myPlayerF = uiState.players.find(p => p.isHuman)
         if (myPlayerF && !myPlayerF.isFolded) {
           this.stats.recordStreet('flop', myPlayerF.chips)
         }
+        if (isAllInRunout(serverState)) await delay(RUNOUT_PAUSE_FLOP)
         break
       }
 
       case 'TURN': {
         await r.animatePhaseChange('turn')
         const turnCard = adaptCard(event.card)
+        playCardFlip()
         await r.animateCommunityReveal([turnCard], 3)
         r.update(uiState)
+        speak(`The turn: ${cardToWords(event.card)}.`)
         // Stats: record turn seen
         const myPlayerT = uiState.players.find(p => p.isHuman)
         if (myPlayerT && !myPlayerT.isFolded) {
           this.stats.recordStreet('turn', myPlayerT.chips)
         }
+        if (isAllInRunout(serverState)) await delay(RUNOUT_PAUSE_TURN)
         break
       }
 
       case 'RIVER': {
         await r.animatePhaseChange('river')
         const riverCard = adaptCard(event.card)
+        playCardFlip()
         await r.animateCommunityReveal([riverCard], 4)
         r.update(uiState)
+        speak(`The river: ${cardToWords(event.card)}.`)
         // Stats: record river seen
         const myPlayerR = uiState.players.find(p => p.isHuman)
         if (myPlayerR && !myPlayerR.isFolded) {
           this.stats.recordStreet('river', myPlayerR.chips)
         }
+        if (isAllInRunout(serverState)) await delay(RUNOUT_PAUSE_RIVER)
         break
       }
 
       case 'PLAYER_ACTION': {
         const player = serverState.players.find(p => p.id === event.playerId)
+
+        // Play action sound
+        switch (event.action.type) {
+          case 'CHECK': playCheckSound(); break
+          case 'BET': playBetSound(); break
+          case 'CALL': playCallSound(); break
+          case 'RAISE': playRaiseSound(); break
+          case 'ALL_IN': playAllInSound(); break
+          case 'FOLD': playFoldSound(); break
+        }
+
         if (player) {
           const actionStr = event.action.type.toLowerCase()
           const amountStr = event.action.amount ? ` $${event.action.amount}` : ''
@@ -481,6 +527,17 @@ export class GameController {
           // Juicy action pop text
           const { text: popText, color: popColor } = getActionPopInfo(event.action)
           r.showPlayerActionPop(player.seatIndex, popText, popColor)
+
+          // TTS narration
+          const name = player.displayName
+          switch (event.action.type) {
+            case 'FOLD': speak(`${name} folds.`); break
+            case 'CHECK': speak(`${name} checks.`); break
+            case 'CALL': speak(`${name} calls ${event.action.amount ?? ''}.`); break
+            case 'BET': speak(`${name} bets ${event.action.amount ?? ''}.`); break
+            case 'RAISE': speak(`${name} raises to ${event.action.amount ?? ''}.`); break
+            case 'ALL_IN': speak(`${name} is all in.`); break
+          }
         }
 
         // Stats: detect human fold
@@ -496,6 +553,7 @@ export class GameController {
         const player = serverState.players.find(p => p.id === event.playerId)
         if (player) {
           r.addLog(`${player.displayName} timed out`)
+          speak(`${player.displayName} timed out.`)
         }
         if (event.playerId === this.myPlayerId) {
           r.setSitOutState(true)
@@ -505,8 +563,19 @@ export class GameController {
       }
 
       case 'SHOWDOWN': {
+        if (isAllInRunout(serverState)) await delay(RUNOUT_PAUSE_SHOWDOWN)
         await r.animatePhaseChange('showdown')
         r.update(uiState)
+
+        // TTS: narrate each player's shown hand
+        for (const sr of event.results) {
+          if (sr.holeCards) {
+            const showPlayer = serverState.players.find(p => p.id === sr.playerId)
+            if (showPlayer) {
+              speak(`${showPlayer.displayName} shows ${sr.handDescription}.`)
+            }
+          }
+        }
 
         // Stats: record showdown hand rank and street
         const myShowdownResult = event.results.find((sr: { playerId: string }) => sr.playerId === this.myPlayerId)
@@ -526,6 +595,7 @@ export class GameController {
             const player = uiState.players.find(p => p.seatIndex === w.playerIndex)
             if (player) {
               r.addLog(`${player.name} wins $${w.amount} - ${w.handDescription}`)
+              speak(`${player.name} wins ${w.amount} dollars.`)
             }
           }
           // Hold on showdown cards before showing winner banner
@@ -565,7 +635,8 @@ export class GameController {
       case 'BLIND_LEVEL_UP': {
         const lvl = event.level
         r.addLog(`--- Blinds up: ${lvl.smallBlind}/${lvl.bigBlind}${lvl.ante > 0 ? ` (ante ${lvl.ante})` : ''} ---`)
-        playBlindLevelUp()
+        playBlindDingDong()
+        speak(`Blinds up. ${lvl.smallBlind} ${lvl.bigBlind}.`)
         r.update(uiState)
         break
       }

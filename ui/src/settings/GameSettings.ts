@@ -3,6 +3,8 @@ type SettingsChangeCallback = () => void;
 interface SettingsData {
   fourColorSuits: boolean;
   humanAvatarId: number;
+  soundEffects: boolean;
+  dealerNarration: boolean;
 }
 
 const STORAGE_KEY = 'pokerathome_settings';
@@ -10,6 +12,8 @@ const STORAGE_KEY = 'pokerathome_settings';
 const DEFAULTS: SettingsData = {
   fourColorSuits: true,
   humanAvatarId: 0,
+  soundEffects: true,
+  dealerNarration: false,
 };
 
 class GameSettingsClass {
@@ -39,6 +43,24 @@ class GameSettingsClass {
     }
   }
 
+  get soundEffects(): boolean { return this.data.soundEffects; }
+  set soundEffects(v: boolean) {
+    if (this.data.soundEffects !== v) {
+      this.data.soundEffects = v;
+      this.save();
+      this.notify();
+    }
+  }
+
+  get dealerNarration(): boolean { return this.data.dealerNarration; }
+  set dealerNarration(v: boolean) {
+    if (this.data.dealerNarration !== v) {
+      this.data.dealerNarration = v;
+      this.save();
+      this.notify();
+    }
+  }
+
   onChange(cb: SettingsChangeCallback): () => void {
     this.listeners.push(cb);
     return () => {
@@ -63,6 +85,8 @@ class GameSettingsClass {
         const parsed = JSON.parse(raw);
         if (typeof parsed.fourColorSuits === 'boolean') this.data.fourColorSuits = parsed.fourColorSuits;
         if (typeof parsed.humanAvatarId === 'number') this.data.humanAvatarId = parsed.humanAvatarId;
+        if (typeof parsed.soundEffects === 'boolean') this.data.soundEffects = parsed.soundEffects;
+        if (typeof parsed.dealerNarration === 'boolean') this.data.dealerNarration = parsed.dealerNarration;
       }
     } catch { /* ignore */ }
   }

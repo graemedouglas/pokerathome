@@ -61,5 +61,8 @@ export const STARTING_CHIPS = 1000;
 export const SMALL_BLIND = 5;
 export const BIG_BLIND = 10;
 
+// All-in runout dramatic pauses (ms) — single source of truth in schema
+export { RUNOUT_PAUSE_FLOP, RUNOUT_PAUSE_TURN, RUNOUT_PAUSE_RIVER, RUNOUT_PAUSE_SHOWDOWN } from '@pokerathome/schema';
+
 // Card asset path
 export const CARD_ASSET_PATH = 'assets/cards/';
