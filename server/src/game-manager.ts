@@ -859,7 +859,7 @@ export class GameManager {
     if (active.recorder && active.recorder.entryCount > 0) {
       try {
         const replayData = active.recorder.toReplayFile();
-        saveReplayFile(gameId, replayData);
+        saveReplayFile(active.recorder.fileName, replayData);
       } catch (err) {
         this.logger.error({ err, gameId }, 'Failed to save replay after hand');
       }
@@ -1251,7 +1251,7 @@ export class GameManager {
     if (active.recorder && active.recorder.entryCount > 0) {
       try {
         const replayData = active.recorder.toReplayFile();
-        const filePath = saveReplayFile(gameId, replayData);
+        const filePath = saveReplayFile(active.recorder.fileName, replayData);
         this.logger.info({ gameId, filePath, entryCount: active.recorder.entryCount }, 'Replay saved');
       } catch (err) {
         this.logger.error({ err, gameId }, 'Failed to save replay');

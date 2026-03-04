@@ -14,10 +14,10 @@ export interface ReplayFileInfo {
 }
 
 /** Save a replay file to disk. Returns the file path. */
-export function saveReplayFile(gameId: string, replayData: object): string {
+export function saveReplayFile(fileName: string, replayData: object): string {
   const dir = config.REPLAY_DIR;
   fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, `${gameId}.replay.json`);
+  const filePath = path.join(dir, `${fileName}.replay.json`);
   fs.writeFileSync(filePath, JSON.stringify(replayData));
   return filePath;
 }
@@ -37,16 +37,20 @@ export function listReplayFiles(): ReplayFileInfo[] {
     .map(f => {
       const filePath = path.join(dir, f);
       const stat = fs.statSync(filePath);
-      // Try to extract gameName from the file
+      // Read file contents for gameId and gameName
       let gameName = f.replace('.replay.json', '');
+      let gameId = gameName;
       try {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         if (data?.gameConfig?.gameName) {
           gameName = data.gameConfig.gameName;
         }
-      } catch { /* use default */ }
+        if (data?.gameConfig?.gameId) {
+          gameId = data.gameConfig.gameId;
+        }
+      } catch { /* use defaults from filename */ }
       return {
-        gameId: f.replace('.replay.json', ''),
+        gameId,
         gameName,
         filePath,
         createdAt: stat.mtime.toISOString(),

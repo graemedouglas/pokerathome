@@ -235,7 +235,10 @@ export function registerAdminRoutes(
     if (!body.success) {
       return reply.status(400).send({ error: 'Invalid replay file format' });
     }
-    const filePath = saveReplayFile(body.data.gameConfig.gameId, body.data);
+    const gameName = (body.data.gameConfig.gameName ?? body.data.gameConfig.gameId)
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const fileName = `uploaded-${gameName}`;
+    const filePath = saveReplayFile(fileName, body.data);
     logger.info({ filePath }, 'Replay file uploaded');
     return reply.status(201).send({ filePath, gameId: body.data.gameConfig.gameId });
   });

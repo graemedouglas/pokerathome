@@ -74,6 +74,18 @@ export class ReplayRecorder {
     };
   }
 
+  /** Filesystem-safe replay filename (no extension). */
+  get fileName(): string {
+    const ts = new Date(this.startTime).toISOString()
+      .replace(/:/g, '-')
+      .replace(/\.\d+Z$/, '');
+    const name = this.gameConfig.gameName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    return `${ts}-${name}`;
+  }
+
   get entryCount(): number {
     return this.entries.length;
   }
