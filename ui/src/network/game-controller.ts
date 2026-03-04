@@ -23,7 +23,6 @@ import {
   playCheckSound, playBetSound, playCallSound, playRaiseSound, playAllInSound, playFoldSound,
 } from '../audio/sounds'
 import { speak, cancelSpeech, cardToWords } from '../audio/dealer-narration'
-import { GameSettings } from '../settings/GameSettings'
 import { StatsTracker } from '../stats-tracker'
 import { evaluateHandRank } from '../utils/hand-evaluator'
 
@@ -610,7 +609,7 @@ export class GameController {
           }
           await r.animateWinners(winnerIndices)
 
-          if (GameSettings.sixSevenMode) {
+          if (import.meta.env.VITE_SIX_SEVEN_MODE !== 'false') {
             for (const w of uiState.winners) {
               const pid = serverState.players.find(p => p.seatIndex === w.playerIndex)?.id
               const hc = pid ? this.hand.showdownHoleCards.get(pid) : undefined
