@@ -451,7 +451,6 @@ export class GameController {
 
       case 'DEAL': {
         playCardDeal()
-        setTimeout(() => playCardDeal(), 80) // second card staggered
         speak('Cards dealt.')
         await r.animatePhaseChange('preflop')
         r.update(uiState)

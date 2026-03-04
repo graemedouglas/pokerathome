@@ -1,6 +1,6 @@
 /**
- * Audio system using Web Audio API.
- * Generates short synthesized tones — no external audio files needed.
+ * Audio system — sample-based card/chip sounds (Kenney Casino CC0)
+ * plus synthesized UI tones for blinds and victory.
  */
 
 import { GameSettings } from '../settings/GameSettings';
@@ -19,199 +19,102 @@ function getAudioContext(): AudioContext | null {
   return audioCtx;
 }
 
-/** Helper: create a white noise buffer of given duration. */
-function createNoiseBuffer(ctx: AudioContext, duration: number): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const length = Math.floor(sampleRate * duration);
-  const buffer = ctx.createBuffer(1, length, sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < length; i++) {
-    data[i] = Math.random() * 2 - 1;
-  }
-  return buffer;
+// ─── Sample loading & playback ───────────────────────────────────────────────
+
+const bufferCache = new Map<string, AudioBuffer>();
+const loadingPromises = new Map<string, Promise<AudioBuffer>>();
+
+async function loadSound(ctx: AudioContext, path: string): Promise<AudioBuffer> {
+  const cached = bufferCache.get(path);
+  if (cached) return cached;
+
+  // Deduplicate concurrent fetches for the same path
+  const existing = loadingPromises.get(path);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const response = await fetch(path);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    bufferCache.set(path, audioBuffer);
+    loadingPromises.delete(path);
+    return audioBuffer;
+  })();
+
+  loadingPromises.set(path, promise);
+  return promise;
 }
 
-// ─── Card Sounds ──────────────────────────────────────────────────────────────
+function playSample(path: string, volume = 0.5, playbackRate = 1.0): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  loadSound(ctx, path).then(buffer => {
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = playbackRate;
+    const gain = ctx.createGain();
+    gain.gain.value = volume;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(0);
+  });
+}
 
-/** Card shuffle — white noise burst through bandpass filter, ~0.6s. */
+// Sound file paths (served from public/assets/sfx/)
+const SFX = {
+  cardShuffle: 'assets/sfx/card-shuffle.ogg',
+  cardSlide: 'assets/sfx/card-slide-1.ogg',
+  cardPlace: 'assets/sfx/card-place-1.ogg',
+  cardShove: 'assets/sfx/card-shove-1.ogg',
+  chipLay1: 'assets/sfx/chip-lay-1.ogg',
+  chipLay2: 'assets/sfx/chip-lay-2.ogg',
+  chipsCollide: 'assets/sfx/chips-collide-1.ogg',
+  chipsStack: 'assets/sfx/chips-stack-1.ogg',
+  chipsHandle: 'assets/sfx/chips-handle-1.ogg',
+  chipsHandleBig: 'assets/sfx/chips-handle-5.ogg',
+} as const;
+
+// ─── Card Sounds ─────────────────────────────────────────────────────────────
+
 export function playCardShuffle(): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  const noise = ctx.createBufferSource();
-  noise.buffer = createNoiseBuffer(ctx, 0.6);
-
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'bandpass';
-  filter.frequency.setValueAtTime(3000, ctx.currentTime);
-  filter.Q.setValueAtTime(0.8, ctx.currentTime);
-
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.12, ctx.currentTime);
-  gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.1);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
-
-  noise.connect(filter);
-  filter.connect(gain);
-  gain.connect(ctx.destination);
-
-  noise.start(ctx.currentTime);
-  noise.stop(ctx.currentTime + 0.6);
+  playSample(SFX.cardShuffle, 0.4);
 }
 
-/** Card deal — very short noise click, ~50ms snap. */
 export function playCardDeal(): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  const noise = ctx.createBufferSource();
-  noise.buffer = createNoiseBuffer(ctx, 0.05);
-
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'highpass';
-  filter.frequency.setValueAtTime(4000, ctx.currentTime);
-
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.15, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
-
-  noise.connect(filter);
-  filter.connect(gain);
-  gain.connect(ctx.destination);
-
-  noise.start(ctx.currentTime);
-  noise.stop(ctx.currentTime + 0.05);
+  playSample(SFX.cardSlide, 0.5);
 }
 
-/** Card flip on community reveal — mid-freq noise burst, ~80ms. */
 export function playCardFlip(): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  const noise = ctx.createBufferSource();
-  noise.buffer = createNoiseBuffer(ctx, 0.08);
-
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'bandpass';
-  filter.frequency.setValueAtTime(2500, ctx.currentTime);
-  filter.Q.setValueAtTime(1.5, ctx.currentTime);
-
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.18, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
-
-  noise.connect(filter);
-  filter.connect(gain);
-  gain.connect(ctx.destination);
-
-  noise.start(ctx.currentTime);
-  noise.stop(ctx.currentTime + 0.08);
+  playSample(SFX.cardPlace, 0.5);
 }
 
-// ─── Action Sounds ────────────────────────────────────────────────────────────
+// ─── Action Sounds ───────────────────────────────────────────────────────────
 
-/** Check — low-pitched knock/thud, 120Hz sine with fast decay. */
 export function playCheckSound(): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(120, ctx.currentTime);
-  gain.gain.setValueAtTime(0.2, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
-
-  osc.start(ctx.currentTime);
-  osc.stop(ctx.currentTime + 0.1);
+  playSample(SFX.cardShove, 0.35);
 }
 
-/** Single chip clink — triangle wave ~2kHz, short ring. */
-function playChipClink(ctx: AudioContext, startTime: number, freq = 2000, vol = 0.12): void {
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-
-  osc.type = 'triangle';
-  osc.frequency.setValueAtTime(freq, startTime);
-  gain.gain.setValueAtTime(0, ctx.currentTime);
-  gain.gain.setValueAtTime(vol, startTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.08);
-
-  osc.start(startTime);
-  osc.stop(startTime + 0.08);
-}
-
-/** Bet — single chip placement clink. */
 export function playBetSound(): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  playChipClink(ctx, ctx.currentTime, 2000, 0.14);
+  playSample(SFX.chipLay1, 0.6);
 }
 
-/** Call — similar to bet but slightly lower pitch. */
 export function playCallSound(): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  playChipClink(ctx, ctx.currentTime, 1600, 0.14);
+  playSample(SFX.chipLay2, 0.6);
 }
 
-/** Raise — chip splash: 3-4 staggered clinks with pitch variation. */
 export function playRaiseSound(): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  const now = ctx.currentTime;
-  const count = 3 + Math.floor(Math.random() * 2); // 3 or 4
-  for (let i = 0; i < count; i++) {
-    const freq = 1800 + Math.random() * 600;
-    playChipClink(ctx, now + i * 0.04, freq, 0.1);
-  }
+  playSample(SFX.chipsStack, 0.6);
 }
 
-/** All-in — chip cascade: 8-10 rapid staggered clinks descending in pitch. */
 export function playAllInSound(): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  const now = ctx.currentTime;
-  const count = 8 + Math.floor(Math.random() * 3); // 8-10
-  for (let i = 0; i < count; i++) {
-    const freq = 2400 - i * 120 + Math.random() * 100;
-    playChipClink(ctx, now + i * 0.03, freq, 0.08);
-  }
+  playSample(SFX.chipsHandleBig, 0.7);
 }
 
-/** Fold — soft whoosh: filtered noise, low volume, ~150ms. */
 export function playFoldSound(): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  const noise = ctx.createBufferSource();
-  noise.buffer = createNoiseBuffer(ctx, 0.15);
-
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.setValueAtTime(1500, ctx.currentTime);
-  filter.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.15);
-
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.08, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-
-  noise.connect(filter);
-  filter.connect(gain);
-  gain.connect(ctx.destination);
-
-  noise.start(ctx.currentTime);
-  noise.stop(ctx.currentTime + 0.15);
+  playSample(SFX.cardShove, 0.25, 0.8);
 }
 
-// ─── Blind / Tournament Sounds ────────────────────────────────────────────────
+// ─── Blind / Tournament Sounds (synthesized) ────────────────────────────────
 
 /** Subtle tick sound for blind warnings (60s, 30s before change). */
 export function playBlindWarningTick(): void {
@@ -315,7 +218,7 @@ export function playBlindLevelUp(): void {
   osc2.stop(ctx.currentTime + 0.4);
 }
 
-// ─── Victory ──────────────────────────────────────────────────────────────────
+// ─── Victory ─────────────────────────────────────────────────────────────────
 
 /** Victory fanfare — ascending major arpeggio (C5-E5-G5-C6) with sustain. */
 export function playVictoryFanfare(): void {

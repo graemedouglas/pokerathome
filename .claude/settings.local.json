@@ -34,7 +34,13 @@
       "Bash(gh api \"search/code?q=odds+repo:pokerth/pokerth\" --paginate)",
       "Read(//c/Users/gdoug/AppData/Local/Temp/claude/c--Users-gdoug-code-pokerathome/tasks/**)",
       "Read(//c/Users/gdoug/**)",
-      "Bash(npm ls jest ts-jest)"
+      "Bash(npm ls jest ts-jest)",
+      "WebFetch(domain:opengameart.org)",
+      "WebFetch(domain:pixabay.com)",
+      "WebFetch(domain:mixkit.co)",
+      "Read(//tmp/**)",
+      "WebFetch(domain:kenney.nl)",
+      "WebFetch(domain:freesound.org)"
     ],
     "additionalDirectories": [
       "C:\\Users\\gdoug\\code\\pokerathome\\.claude",
