@@ -7,6 +7,8 @@ export interface BotClientOptions {
   gameId: string
   strategy: BotStrategy
   displayName: string
+  /** Timeout in ms for start() to complete (connect + identify + join + ready). Default 10000. */
+  startTimeoutMs?: number
   logger?: Pick<Console, 'info' | 'warn' | 'error'>
 }
 
@@ -16,6 +18,7 @@ export class BotClient {
   private reconnectToken: string | null = null
   private gameJoined = false
   private stopped = false
+  private joinError: string | null = null
   private options: BotClientOptions
   private log: Pick<Console, 'info' | 'warn' | 'error'>
   /** Saved for error recovery: retry with CHECK/FOLD if server rejects an action */
@@ -34,6 +37,13 @@ export class BotClient {
   start(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.stopped) return reject(new Error('Bot has been stopped'))
+
+      const timeoutMs = this.options.startTimeoutMs ?? 10_000
+      const timeout = setTimeout(() => {
+        clearInterval(checkReady)
+        reject(new Error(`Bot start() timed out after ${timeoutMs}ms`))
+        this.stop()
+      }, timeoutMs)
 
       this.ws = new WebSocket(this.options.serverUrl)
 
@@ -60,18 +70,24 @@ export class BotClient {
 
       this.ws.on('error', (err) => {
         this.log.error('WebSocket error:', err)
-        if (!this.playerId) reject(err)
+        if (!this.playerId) {
+          clearTimeout(timeout)
+          clearInterval(checkReady)
+          reject(err)
+        }
       })
 
-      // Resolve once identified
-      const checkIdentified = setInterval(() => {
-        if (this.playerId) {
-          clearInterval(checkIdentified)
+      // Resolve once game is joined (not just identified)
+      const checkReady = setInterval(() => {
+        if (this.gameJoined) {
+          clearInterval(checkReady)
+          clearTimeout(timeout)
           resolve()
         }
-        if (this.stopped) {
-          clearInterval(checkIdentified)
-          resolve()
+        if (this.stopped || this.joinError) {
+          clearInterval(checkReady)
+          clearTimeout(timeout)
+          reject(new Error(this.joinError ?? 'Bot stopped'))
         }
       }, 50)
     })
@@ -99,10 +115,20 @@ export class BotClient {
   private handleMessage(msg: { action: string; payload: unknown }): void {
     switch (msg.action) {
       case 'identified':
-        this.handleIdentified(msg.payload as { playerId: string; reconnectToken: string })
+        this.handleIdentified(msg.payload as {
+          playerId: string
+          reconnectToken: string
+          pendingGame?: { gameId: string; gameName: string }
+        })
         break
       case 'gameJoined':
         this.handleGameJoined()
+        break
+      case 'alreadyInGame':
+        this.handleAlreadyInGame()
+        break
+      case 'lobbyUpdate':
+        // Expected after join — no action needed
         break
       case 'gameState':
         this.handleGameState(msg.payload as {
@@ -115,20 +141,38 @@ export class BotClient {
         this.handleGameOver()
         break
       case 'error':
-        this.log.warn('Server error:', msg.payload)
-        this.retryWithFallback()
+        this.handleError(msg.payload as { code?: string; message?: string })
         break
       case 'timeWarning':
         break
       default:
+        this.log.warn('Unhandled message:', msg.action)
         break
     }
   }
 
-  private handleIdentified(payload: { playerId: string; reconnectToken: string }): void {
+  private handleIdentified(payload: {
+    playerId: string
+    reconnectToken: string
+    pendingGame?: { gameId: string; gameName: string }
+  }): void {
     this.playerId = payload.playerId
     this.reconnectToken = payload.reconnectToken
     this.log.info(`Identified as ${this.playerId}`)
+
+    if (payload.pendingGame) {
+      // Server thinks we're already in a game (stale session) — leave first
+      this.log.warn(`Pending game detected (${payload.pendingGame.gameName}), leaving first...`)
+      this.send({ action: 'leaveGame', payload: {} })
+      // Small delay to let the leave process, then join our target game
+      setTimeout(() => {
+        this.send({
+          action: 'joinGame',
+          payload: { gameId: this.options.gameId },
+        })
+      }, 100)
+      return
+    }
 
     this.send({
       action: 'joinGame',
@@ -140,6 +184,30 @@ export class BotClient {
     this.gameJoined = true
     this.log.info('Joined game, readying up...')
     this.send({ action: 'ready', payload: {} })
+  }
+
+  private handleAlreadyInGame(): void {
+    this.log.warn('Already in a game, leaving and retrying join...')
+    this.send({ action: 'leaveGame', payload: {} })
+    setTimeout(() => {
+      this.send({
+        action: 'joinGame',
+        payload: { gameId: this.options.gameId },
+      })
+    }, 100)
+  }
+
+  private handleError(payload: { code?: string; message?: string }): void {
+    this.log.warn('Server error:', payload)
+
+    // If we haven't joined the game yet, this is a fatal error for start()
+    if (!this.gameJoined) {
+      this.joinError = payload.message ?? payload.code ?? 'Unknown error'
+      return
+    }
+
+    // During gameplay, try to recover with a fallback action
+    this.retryWithFallback()
   }
 
   private handleGameState(payload: {
