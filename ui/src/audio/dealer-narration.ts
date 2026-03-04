@@ -31,6 +31,11 @@ export function speak(text: string): void {
   if (!GameSettings.dealerNarration) return;
   if (typeof window === 'undefined' || !window.speechSynthesis) return;
 
+  // If the queue is building up, cancel the backlog and skip ahead
+  if (window.speechSynthesis.pending) {
+    window.speechSynthesis.cancel();
+  }
+
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.rate = 0.95;
   utterance.pitch = 0.85;
