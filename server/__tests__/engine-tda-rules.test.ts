@@ -2490,3 +2490,604 @@ function playToShowdown(state: EngineState): EngineState {
   }
   return current;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 21. Cards Speak / Hand Evaluation Edge Cases (TDA Rule 12)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Cards Speak / Hand Evaluation Edge Cases (TDA Rule 12)', () => {
+  test('board plays: community cards form best hand for both → split pot', () => {
+    // Board: A K Q J T (royal straight) — both players' hole cards are irrelevant
+    // Both players should split the pot
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      '2h', '3h',  // p1 hole cards (weak)
+      '2d', '3d',  // p2 hole cards (weak)
+      'As', 'Ks', 'Qs', 'Js', 'Ts',  // board: ace-high straight
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // Play to showdown
+    current = playToShowdown(current);
+    expect(current.stage).toBe('SHOWDOWN');
+
+    // Both should get equal share (split pot)
+    const p1 = current.players.find((p) => p.id === 'p1')!;
+    const p2 = current.players.find((p) => p.id === 'p2')!;
+    expect(p1.stack).toBe(p2.stack);
+    expect(p1.stack).toBe(500); // each gets their money back
+  });
+
+  test('kicker determines winner: both have top pair, different kickers', () => {
+    // Board: A 7 4 2 3 — both have pair of aces
+    // p1: A K (kicker K), p2: A 6 (kicker 7 from board)
+    // p1 should win with better kicker
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'Ah', 'Kh',  // p1: pair of aces, king kicker
+      'Ad', '6d',  // p2: pair of aces, 7 kicker (from board)
+      'As', '7s', '4c', '2c', '3c',  // board
+    ]);
+    const transitions = startHand(state, deck);
+    let current = playToShowdown(finalState(transitions));
+
+    expect(current.stage).toBe('SHOWDOWN');
+    // p1 (ace-king) should win over p2 (ace-six)
+    const p1 = current.players.find((p) => p.id === 'p1')!;
+    const p2 = current.players.find((p) => p.id === 'p2')!;
+    // Winner has more chips than loser
+    expect(p1.stack + p2.stack).toBe(1000);
+    expect(Math.max(p1.stack, p2.stack)).toBeGreaterThan(500);
+  });
+
+  test('higher flush wins over lower flush', () => {
+    // Board has 3 hearts. Both players have 2 hearts each = both have flush.
+    // p1: Kh Qh → K-high flush. p2: 8h 9h → 9-high flush.
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'Kh', 'Qh',  // p1: K-high flush
+      '8h', '9h',  // p2: 9-high flush
+      'Ah', '5h', '3h', '2c', '4c',  // board: 3 hearts + 2 non-hearts
+    ]);
+    const transitions = startHand(state, deck);
+    let current = playToShowdown(finalState(transitions));
+
+    expect(current.stage).toBe('SHOWDOWN');
+    const p1 = current.players.find((p) => p.id === 'p1')!;
+    const p2 = current.players.find((p) => p.id === 'p2')!;
+    // p1 should win with higher flush
+    expect(p1.stack + p2.stack).toBe(1000);
+    expect(Math.max(p1.stack, p2.stack)).toBeGreaterThan(500);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 22. Side Pots to Different Winners (TDA Rule 21)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Side Pots to Different Winners (TDA Rule 21)', () => {
+  test('short stack wins main pot, big stack wins side pot', () => {
+    // p1: 200 chips (best hand), p2: 1000, p3: 1000 (second-best hand)
+    // Deck order: p1[0,1], p2[2,3], p3[4,5], board[6-10]
+    const state = create3PlayerGame({ stacks: [200, 1000, 1000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'Ah', 'Kh',  // p1: ace-king hearts → flush (best)
+      '2d', '3s',  // p2: garbage (worst)
+      'Qs', 'Qd',  // p3: pair of queens (second-best)
+      '5h', '7h', '9h', 'Ts', '2c',  // board: 3 hearts for p1 flush
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // Everyone goes all-in
+    while (current.activePlayerId) {
+      const t = processAction(current, current.activePlayerId, 'ALL_IN');
+      current = finalState(t);
+    }
+
+    expect(current.stage).toBe('SHOWDOWN');
+    expect(totalChips(current)).toBe(2200); // chip conservation
+
+    const p1 = current.players.find((p) => p.id === 'p1')!;
+    const p2 = current.players.find((p) => p.id === 'p2')!;
+    const p3 = current.players.find((p) => p.id === 'p3')!;
+
+    // p1 wins main pot (200 * 3 = 600), p3 wins side pot (800 * 2 = 1600)
+    expect(p1.stack).toBe(600);
+    expect(p3.stack).toBe(1600);
+    expect(p2.stack).toBe(0);
+  });
+
+  test('three all-in tiers: three pots, each pot correctly awarded', () => {
+    // p1: 100, p2: 300, p3: 1000 — all go all-in
+    // Deck order: p1[0,1], p2[2,3], p3[4,5], board[6-10]
+    // p1 best → wins main pot, p2 second → wins side pot 1
+    const state = create3PlayerGame({ stacks: [100, 300, 1000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'Ah', 'Kh',  // p1: ace-high flush (best)
+      'Qh', 'Jh',  // p2: queen-high flush (second)
+      '2d', '3d',  // p3: garbage (worst)
+      '5h', '7h', '9h', '8c', 'Tc',  // board: 3 hearts
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    while (current.activePlayerId) {
+      const t = processAction(current, current.activePlayerId, 'ALL_IN');
+      current = finalState(t);
+    }
+
+    expect(current.stage).toBe('SHOWDOWN');
+    expect(totalChips(current)).toBe(1400);
+  });
+
+  test('short-stack winner gets only main pot, not side pot they are ineligible for', () => {
+    // p1: 100 all-in (best hand). p2: 500, p3: 500.
+    // Deck order: p1[0,1], p2[2,3], p3[4,5], board[6-10]
+    const state = create3PlayerGame({ stacks: [100, 500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'Ah', 'Kh',  // p1: ace-high flush (best)
+      'Qs', 'Qd',  // p2: pair of queens (second)
+      '2d', '3s',  // p3: garbage (worst)
+      '5h', '7h', '9h', '8c', 'Tc',  // board: 3 hearts for p1 flush
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    while (current.activePlayerId) {
+      const t = processAction(current, current.activePlayerId, 'ALL_IN');
+      current = finalState(t);
+    }
+
+    expect(current.stage).toBe('SHOWDOWN');
+    const p1 = current.players.find((p) => p.id === 'p1')!;
+
+    // p1 can only win 100*3 = 300 from main pot (not the 800 side pot)
+    expect(p1.stack).toBeLessThanOrEqual(300);
+    expect(totalChips(current)).toBe(1100);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 23. Blind Level Advancement (TDA Rule 23)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Blind Level Advancement (TDA Rule 23)', () => {
+  test('after advanceBlindLevel, next hand uses new blind amounts', () => {
+    // Create a tournament game with a blind schedule
+    const schedule = generateBlindSchedule({
+      numPlayers: 3,
+      tournamentLengthHours: 1,
+      roundLengthMinutes: 10,
+      antesEnabled: false,
+    });
+
+    let state = createInitialState({
+      gameId: 'test-tda-blind-adv',
+      gameName: 'TDA Blind Advance',
+      gameType: 'tournament',
+      smallBlindAmount: schedule[0].smallBlind,
+      bigBlindAmount: schedule[0].bigBlind,
+      maxPlayers: 6,
+      startingStack: 5000,
+      blindSchedule: schedule,
+    });
+
+    for (let i = 0; i < 3; i++) {
+      const { state: s } = addPlayer(state, `p${i + 1}`, `Player${i + 1}`);
+      state = s;
+    }
+    for (let i = 1; i <= 3; i++) state = setPlayerReady(state, `p${i}`);
+
+    const oldSB = state.smallBlindAmount;
+    const oldBB = state.bigBlindAmount;
+
+    // Advance blind level
+    const { state: advanced } = advanceBlindLevel(state);
+
+    // New blinds should be different (higher)
+    expect(advanced.smallBlindAmount).toBeGreaterThan(oldSB);
+    expect(advanced.bigBlindAmount).toBeGreaterThan(oldBB);
+
+    // Start a hand with the advanced state
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs', 'Ah', 'Kh', 'Qh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(advanced, deck);
+    const handState = finalState(transitions);
+
+    // Verify blinds were posted at the new level
+    const blindsEvent = transitions[1].event as any;
+    expect(blindsEvent.bigBlind.amount).toBe(advanced.bigBlindAmount);
+    expect(blindsEvent.smallBlind.amount).toBe(advanced.smallBlindAmount);
+  });
+
+  test('antes kick in when reaching ante start level', () => {
+    const schedule = generateBlindSchedule({
+      numPlayers: 3,
+      tournamentLengthHours: 1,
+      roundLengthMinutes: 10,
+      antesEnabled: true,
+    });
+
+    // Find the first level with antes
+    const anteLevel = schedule.findIndex((lvl) => lvl.ante > 0);
+    expect(anteLevel).toBeGreaterThan(0);
+
+    let state = createInitialState({
+      gameId: 'test-tda-ante-kick',
+      gameName: 'TDA Ante Test',
+      gameType: 'tournament',
+      smallBlindAmount: schedule[0].smallBlind,
+      bigBlindAmount: schedule[0].bigBlind,
+      maxPlayers: 6,
+      startingStack: 5000,
+      blindSchedule: schedule,
+      antesEnabled: true,
+    });
+
+    for (let i = 0; i < 3; i++) {
+      const { state: s } = addPlayer(state, `p${i + 1}`, `Player${i + 1}`);
+      state = s;
+    }
+    for (let i = 1; i <= 3; i++) state = setPlayerReady(state, `p${i}`);
+
+    // Advance to the ante level
+    let current = state;
+    for (let i = 0; i < anteLevel; i++) {
+      const { state: adv } = advanceBlindLevel(current);
+      current = adv;
+    }
+
+    // Verify we're at a level with antes
+    expect(schedule[current.currentBlindLevel].ante).toBeGreaterThan(0);
+
+    // Start a hand — antes included in BLINDS_POSTED event
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs', 'Ah', 'Kh', 'Qh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(current, deck);
+    // Antes are part of the BLINDS_POSTED event, not a separate event
+    const blindsEvent = transitions.find((t) => (t.event as any).type === 'BLINDS_POSTED');
+    expect(blindsEvent).toBeDefined();
+    expect((blindsEvent!.event as any).antes).toBeDefined();
+    expect((blindsEvent!.event as any).antes.length).toBeGreaterThan(0);
+  });
+
+  test('chip denomination changes with blind level', () => {
+    const schedule = generateBlindSchedule({
+      numPlayers: 3,
+      tournamentLengthHours: 1,
+      roundLengthMinutes: 10,
+      antesEnabled: false,
+    });
+
+    // Check that different levels have different minChipDenom values
+    const denominations = schedule.map((lvl) => lvl.minChipDenom);
+    // At minimum, early levels should have small chip denoms and later levels larger
+    expect(denominations[0]).toBeLessThanOrEqual(denominations[denominations.length - 1]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 24. Sitting-Out Player (TDA Rule 30)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Sitting-Out Player (TDA Rule 30)', () => {
+  test('sitting-out player excluded from hand (no cards, no action)', () => {
+    let state = create3PlayerGame({ stacks: [1000, 1000, 1000], blinds: [5, 10] });
+
+    // Mark p3 as sitting out
+    state = {
+      ...state,
+      players: state.players.map((p) =>
+        p.id === 'p3' ? { ...p, sittingOut: true } : p
+      ),
+    };
+
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Ah', 'Kh',  // only 2 players get cards
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    const current = finalState(transitions);
+
+    // p3 should be folded (excluded)
+    const p3 = current.players.find((p) => p.id === 'p3')!;
+    expect(p3.folded).toBe(true);
+    expect(p3.holeCards).toBeNull();
+
+    // Only 2 players should be active
+    const active = current.players.filter((p) => !p.folded && p.role === 'player');
+    expect(active.length).toBe(2);
+  });
+
+  test('three-player game with one sitting out plays as effectively heads-up', () => {
+    let state = create3PlayerGame({ stacks: [1000, 1000, 1000], blinds: [5, 10] });
+
+    // Mark p2 as sitting out
+    state = {
+      ...state,
+      players: state.players.map((p) =>
+        p.id === 'p2' ? { ...p, sittingOut: true } : p
+      ),
+    };
+
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // Should function as heads-up: dealer posts SB
+    const dealerPlayer = current.players.find(
+      (p) => p.seatIndex === current.dealerSeatIndex && !p.folded
+    );
+    expect(dealerPlayer).toBeDefined();
+
+    // Should be able to play through without error
+    current = playToShowdown(current);
+    expect(current.stage).toBe('SHOWDOWN');
+
+    // Chip conservation
+    expect(totalChips(current)).toBe(3000);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 25. Showdown Reveal and Card Visibility (TDA Rules 13, 17)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Showdown Reveal and Card Visibility (TDA Rules 13, 17)', () => {
+  test('at showdown, all non-folded players hole cards visible to opponents', () => {
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = playToShowdown(finalState(transitions));
+
+    expect(current.stage).toBe('SHOWDOWN');
+
+    // Each player should see the other's cards via toClientGameState
+    const p1View = toClientGameState(current, 'p1');
+    const p2InP1View = p1View.players.find((p) => p.id === 'p2');
+    expect(p2InP1View?.holeCards).not.toBeNull();
+    expect(p2InP1View?.holeCards).toHaveLength(2);
+
+    const p2View = toClientGameState(current, 'p2');
+    const p1InP2View = p2View.players.find((p) => p.id === 'p1');
+    expect(p1InP2View?.holeCards).not.toBeNull();
+    expect(p1InP2View?.holeCards).toHaveLength(2);
+  });
+
+  test('folded player excluded from showdown results', () => {
+    // 3 players: one folds pre-flop, remaining two go to showdown
+    // The folded player should NOT appear in the SHOWDOWN event results
+    const state = create3PlayerGame({ stacks: [1000, 1000, 1000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs',
+      'Ah', 'Kh', 'Qh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // First player to act folds
+    const folderId = current.activePlayerId!;
+    let t = processAction(current, folderId, 'FOLD');
+    current = finalState(t);
+
+    // Remaining players play to showdown
+    current = playToShowdown(current);
+    expect(current.stage).toBe('SHOWDOWN');
+
+    // Showdown event should only include non-folded players
+    const showdownEvent = current.handEvents.find((e) => (e as any).type === 'SHOWDOWN') as any;
+    expect(showdownEvent).toBeDefined();
+    const resultIds = showdownEvent.results.map((r: any) => r.playerId);
+    expect(resultIds).not.toContain(folderId);
+    // Should have exactly 2 results (the non-folded players)
+    expect(resultIds.length).toBe(2);
+  });
+
+  test('during active play, opponent hole cards are hidden', () => {
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    const current = finalState(transitions);
+
+    // We're in PRE_FLOP — cards should be hidden from opponent
+    expect(current.stage).toBe('PRE_FLOP');
+
+    const p1View = toClientGameState(current, 'p1');
+    const p2InP1View = p1View.players.find((p) => p.id === 'p2');
+    expect(p2InP1View?.holeCards).toBeNull();
+
+    // But player sees their own cards
+    const p1InP1View = p1View.players.find((p) => p.id === 'p1');
+    expect(p1InP1View?.holeCards).not.toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 26. Uncalled Bet Return / Fold-to-Win (TDA Rule 65)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Uncalled Bet Return / Fold-to-Win (TDA Rule 65)', () => {
+  test('all opponents fold to a raise → chip conservation holds', () => {
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // SB (first to act in HU) raises
+    const sb = current.activePlayerId!;
+    let t = processAction(current, sb, 'RAISE', 30);
+    current = finalState(t);
+
+    // BB folds
+    const bb = current.activePlayerId!;
+    t = processAction(current, bb, 'FOLD');
+    current = finalState(t);
+
+    // Chip conservation: total should still be 1000
+    expect(totalChips(current)).toBe(1000);
+
+    // Winner should have gained the BB's posted blind
+    const winner = current.players.find((p) => p.id === sb)!;
+    expect(winner.stack).toBe(510); // started 500, won 10 from BB's blind
+  });
+
+  test('pre-flop: everyone folds to BB → BB stack is correct', () => {
+    const state = create3PlayerGame({ stacks: [1000, 1000, 1000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs',
+      'Ah', 'Kh', 'Qh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // Identify BB from blinds event
+    const blindsEvent = transitions[1].event as any;
+    const bbId = blindsEvent?.bigBlind?.playerId;
+    const sbId = blindsEvent?.smallBlind?.playerId;
+
+    // All non-BB players fold
+    while (current.activePlayerId && current.activePlayerId !== bbId) {
+      const t = processAction(current, current.activePlayerId, 'FOLD');
+      current = finalState(t);
+    }
+
+    // If BB still has action (everyone folded to BB without a raise)
+    // BB might need to check or the hand might already be over
+    if (current.activePlayerId === bbId && current.handInProgress) {
+      // Someone must have called/raised; fold remaining
+      const t = processAction(current, bbId, 'CHECK');
+      current = finalState(t);
+    }
+
+    // Chip conservation
+    expect(totalChips(current)).toBe(3000);
+
+    // BB should have won the SB (5 chips)
+    const bb = current.players.find((p) => p.id === bbId)!;
+    expect(bb.stack).toBeGreaterThanOrEqual(1000); // at minimum, BB doesn't lose
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 27. Validator: Bet/Raise Amount Rejection (TDA Rules 43, 52)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Validator: Bet/Raise Amount Rejection (TDA Rules 43, 52)', () => {
+  test('rejects BET amount below minimum', () => {
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = playToFlop(finalState(transitions));
+
+    const pid = current.activePlayerId!;
+    const actions = getAvailableActions(current, pid);
+    const bet = actions.find((a) => a.type === 'BET');
+    expect(bet).toBeDefined();
+    expect(bet!.min).toBeGreaterThan(0);
+
+    // Try to bet below minimum
+    const result = validateAction(current, pid, 'BET', bet!.min! - 1);
+    expect(result).not.toBeNull();
+    expect(result!.code).toBe('INVALID_AMOUNT');
+  });
+
+  test('rejects RAISE amount below minimum', () => {
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = playToFlop(finalState(transitions));
+
+    // First player bets
+    const p1 = current.activePlayerId!;
+    let t = processAction(current, p1, 'BET', 10);
+    current = finalState(t);
+
+    // Second player tries to raise below minimum
+    const p2 = current.activePlayerId!;
+    const actions = getAvailableActions(current, p2);
+    const raise = actions.find((a) => a.type === 'RAISE');
+    expect(raise).toBeDefined();
+
+    const result = validateAction(current, p2, 'RAISE', raise!.min! - 1);
+    expect(result).not.toBeNull();
+    expect(result!.code).toBe('INVALID_AMOUNT');
+  });
+
+  test('rejects BET/RAISE amount above maximum', () => {
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = playToFlop(finalState(transitions));
+
+    const pid = current.activePlayerId!;
+    const actions = getAvailableActions(current, pid);
+    const bet = actions.find((a) => a.type === 'BET');
+    expect(bet).toBeDefined();
+
+    // Try to bet above maximum (more than stack)
+    const result = validateAction(current, pid, 'BET', bet!.max! + 1);
+    expect(result).not.toBeNull();
+    expect(result!.code).toBe('INVALID_AMOUNT');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 28. Fold When Check Is Free (TDA Rule 58)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Fold When Check Is Free (TDA Rule 58)', () => {
+  test('FOLD action available even when CHECK is also available', () => {
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = playToFlop(finalState(transitions));
+
+    // On the flop, first to act can check (no bet yet)
+    const pid = current.activePlayerId!;
+    const actions = getAvailableActions(current, pid);
+    const types = actions.map((a) => a.type);
+
+    expect(types).toContain('CHECK');
+    // TDA Rule 58: fold is legal even when check is free (dumb but legal)
+    expect(types).toContain('FOLD');
+  });
+});

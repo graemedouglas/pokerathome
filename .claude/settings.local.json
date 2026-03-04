@@ -38,7 +38,8 @@
     ],
     "additionalDirectories": [
       "C:\\Users\\gdoug\\code\\pokerathome\\.claude",
-      "c:\\Users\\gdoug\\.claude\\plans"
+      "c:\\Users\\gdoug\\.claude\\plans",
+      "c:\\Users\\gdoug\\code\\pokerathome\\docs\\rules"
     ]
   },
   "autoUpdatesChannel": "latest"
