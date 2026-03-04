@@ -55,6 +55,7 @@ export class ActionPanel extends Container {
   private raiseAmount = 0;
   private minRaise = 0;
   private maxRaise = 0;
+  private callAmount = 0;
   private currentPot = 0;
   private chipStep = BIG_BLIND; // step size for slider (minChipDenom for tournaments)
   private callback: ActionCallback | null = null;
@@ -316,7 +317,11 @@ export class ActionPanel extends Container {
     if (this.raiseButtonText) {
       const label = this.raiseAmount === this.maxRaise ? 'All In' :
         (this.raiseType === 'BET' ? 'Bet' : 'Raise');
-      this.raiseButtonText.text = `${label}\n$${this.raiseAmount}`;
+      const increment = this.raiseAmount - this.callAmount;
+      const suffix = this.raiseType === 'RAISE' && increment > 0
+        ? `  (+$${increment})`
+        : '';
+      this.raiseButtonText.text = `${label}\n$${this.raiseAmount}${suffix}`;
     }
   }
 
@@ -390,6 +395,7 @@ export class ActionPanel extends Container {
   show(available: AvailableActions, pot: number, callback: ActionCallback, timeToActMs?: number, minChipDenom?: number): void {
     this.callback = callback;
     this.currentPot = pot;
+    this.callAmount = available.callAmount;
     this.raiseType = available.raiseType;
     this.chipStep = minChipDenom && minChipDenom > 0 ? minChipDenom : BIG_BLIND;
     this.visible = true;
