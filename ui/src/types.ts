@@ -94,6 +94,13 @@ export interface WinnerInfo {
   handDescription: string
 }
 
+export interface Standing {
+  playerId: string
+  displayName: string
+  finalStack: number
+  rank: number
+}
+
 export type GameEventType =
   | 'deal'
   | 'communityReveal'

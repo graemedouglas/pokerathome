@@ -77,6 +77,7 @@ async function main() {
       }
       if (event.type === 'gameOver') {
         renderer.addLog(`Game over: ${event.reason}`)
+        renderer.showVictoryOverlay(event.standings, event.reason)
       }
     })
   }

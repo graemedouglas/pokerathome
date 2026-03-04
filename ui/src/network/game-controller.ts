@@ -6,7 +6,7 @@ import type {
 } from '@pokerathome/schema'
 import type { GameRenderer } from '../renderer/GameRenderer'
 import type { WsClient } from './ws-client'
-import type { GameState, WinnerInfo } from '../types'
+import type { GameState, WinnerInfo, Standing } from '../types'
 import {
   adaptGameState, adaptActionRequest, adaptPlayerAction,
   extractBlindPlayers, extractWinners, adaptCard,
@@ -20,7 +20,7 @@ import { evaluateHandRank } from '../utils/hand-evaluator'
 
 export type GameControllerEvent =
   | { type: 'gameStarted' }
-  | { type: 'gameOver'; reason: string }
+  | { type: 'gameOver'; reason: string; standings: Standing[] }
   | { type: 'error'; message: string }
 
 export type GameControllerEventHandler = (event: GameControllerEvent) => void
@@ -263,9 +263,11 @@ export class GameController {
       case 'gameState':
         await this.handleGameState(msg.payload as GameStateUpdatePayload)
         break
-      case 'gameOver':
-        this.emit({ type: 'gameOver', reason: (msg.payload as { reason: string }).reason })
+      case 'gameOver': {
+        const goPay = msg.payload as { reason: string; standings?: Standing[] }
+        this.emit({ type: 'gameOver', reason: goPay.reason, standings: goPay.standings ?? [] })
         break
+      }
       case 'error':
         this.emit({ type: 'error', message: (msg.payload as { message: string }).message })
         break

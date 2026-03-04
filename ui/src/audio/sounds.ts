@@ -65,3 +65,33 @@ export function playBlindLevelUp(): void {
   osc2.start(ctx.currentTime + 0.15);
   osc2.stop(ctx.currentTime + 0.4);
 }
+
+/** Victory fanfare — ascending major arpeggio (C5-E5-G5-C6) with sustain. */
+export function playVictoryFanfare(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const notes = [523, 659, 784, 1047]; // C5, E5, G5, C6
+  const stagger = 0.12;
+  const now = ctx.currentTime;
+
+  for (let i = 0; i < notes.length; i++) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.type = 'sine';
+    const start = now + i * stagger;
+    const isLast = i === notes.length - 1;
+    const duration = isLast ? 0.6 : 0.25;
+
+    osc.frequency.setValueAtTime(notes[i], start);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.setValueAtTime(0.2, start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+
+    osc.start(start);
+    osc.stop(start + duration);
+  }
+}

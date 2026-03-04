@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
-import { GameState, AvailableActions, PlayerAction, Card } from '../types';
+import { GameState, AvailableActions, PlayerAction, Card, Standing } from '../types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, NUM_SEATS, TABLE_CENTER_X, TABLE_CENTER_Y } from '../constants';
 import { computeSeatPositions } from '../utils/Layout';
 import { TableRenderer } from './TableRenderer';
@@ -18,6 +18,8 @@ import type { ReplayController } from '../network/replay-controller';
 import { ReplayControls } from './ReplayControls';
 import { ReplayCardVisibilityPanel } from './ReplayCardVisibilityPanel';
 import { TournamentInfoBar } from './TournamentInfoBar';
+import { VictoryOverlay } from './VictoryOverlay';
+import { playVictoryFanfare } from '../audio/sounds';
 import { tween, delay, easeOutBack, easeOutCubic } from '../utils/Animations';
 import { evaluateHandDescription } from '../utils/hand-evaluator';
 
@@ -65,6 +67,7 @@ export class GameRenderer {
   private isSittingOut = false;
   private sitOutPending = false;
   private wsClient: WsClient | null = null;
+  private victoryOverlay: VictoryOverlay | null = null;
   private onSitOutClicked: ((sittingOut: boolean) => void) | null = null;
   private sitOutPendingTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -360,6 +363,10 @@ export class GameRenderer {
       this.chatPanel.mount();
     }
 
+    // Victory overlay (must be last in uiLayer to render on top)
+    this.victoryOverlay = new VictoryOverlay(this.app);
+    this.uiLayer.addChild(this.victoryOverlay);
+
     // Listen for settings changes — clear card cache + re-render
     GameSettings.onChange(() => {
       clearTextureCache();
@@ -517,6 +524,13 @@ export class GameRenderer {
     // Bounce the winning player panels
     const promises = winnerIndices.map(i => this.playerRenderers[i].playWinAnimation());
     await Promise.all(promises);
+  }
+
+  /** Show the game-over victory celebration overlay. */
+  async showVictoryOverlay(standings: Standing[], reason: string): Promise<void> {
+    if (!this.victoryOverlay) return;
+    playVictoryFanfare();
+    await this.victoryOverlay.show(standings, reason);
   }
 
   /** Reset all player cards for new hand */
