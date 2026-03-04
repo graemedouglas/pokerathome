@@ -79,6 +79,9 @@ export function createRouter(
         case 'leaveGame':
           handlers.handleLeaveGame(session!, sessionManager, gameManager, logger, replayGameManager);
           break;
+        case 'rejoinGame':
+          handlers.handleRejoinGame(session!, sessionManager, gameManager, logger);
+          break;
         case 'replayControl':
           if (replayGameManager) {
             handlers.handleReplayControl(session!, message.payload, replayGameManager, logger);

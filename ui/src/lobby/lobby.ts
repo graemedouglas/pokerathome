@@ -379,6 +379,20 @@ export class Lobby {
         break
       }
 
+      case 'alreadyInGame': {
+        const payload = msg.payload as { existingGameId: string; existingGameName: string }
+        this.showAlreadyInGameScreen(payload.existingGameId, payload.existingGameName)
+        break
+      }
+
+      case 'rejoinedGame': {
+        const payload = msg.payload as { currentGame: GameStateUpdatePayload }
+        const myPlayer = payload.currentGame.gameState.players.find(p => p.id === this.playerId)
+        this.isSpectator = myPlayer?.role === 'spectator'
+        this.finish(payload.currentGame)
+        break
+      }
+
       case 'error': {
         const payload = msg.payload as { code?: string; message: string }
 
@@ -405,6 +419,56 @@ export class Lobby {
         break
       }
     }
+  }
+
+  private showAlreadyInGameScreen(gameId: string, gameName: string): void {
+    this.currentScreen = 'games'
+    const container = el('div', 'lobby-card')
+
+    const title = el('h2', 'lobby-title-sm')
+    title.textContent = 'Already In Game'
+
+    const subtitle = el('p', 'lobby-subtitle')
+    subtitle.textContent = `You're still in: ${gameName}`
+
+    const prompt = el('p', 'lobby-join-prompt')
+    prompt.textContent = 'Would you like to rejoin or leave?'
+
+    const rejoinBtn = el('button', 'lobby-btn lobby-btn-primary lobby-join-choice-btn')
+    rejoinBtn.textContent = 'Rejoin Game'
+    const rejoinHint = el('p', 'lobby-join-hint')
+    rejoinHint.textContent = 'Return to the game in progress'
+
+    const leaveBtn = el('button', 'lobby-btn lobby-btn-secondary lobby-join-choice-btn')
+    leaveBtn.textContent = 'Leave Game'
+    const leaveHint = el('p', 'lobby-join-hint')
+    leaveHint.textContent = 'Leave and browse available games'
+
+    rejoinBtn.addEventListener('click', () => {
+      rejoinBtn.textContent = 'Rejoining...'
+      rejoinBtn.setAttribute('disabled', 'true')
+      leaveBtn.setAttribute('disabled', 'true')
+      this.currentGameId = gameId
+      this.ws.send('rejoinGame', {})
+    })
+
+    leaveBtn.addEventListener('click', () => {
+      leaveBtn.textContent = 'Leaving...'
+      rejoinBtn.setAttribute('disabled', 'true')
+      leaveBtn.setAttribute('disabled', 'true')
+      this.ws.send('leaveGame', {})
+      this.ws.send('listGames', {})
+    })
+
+    const choices = el('div', 'lobby-join-choices')
+    const rejoinGroup = el('div', 'lobby-join-group')
+    rejoinGroup.append(rejoinBtn, rejoinHint)
+    const leaveGroup = el('div', 'lobby-join-group')
+    leaveGroup.append(leaveBtn, leaveHint)
+    choices.append(rejoinGroup, leaveGroup)
+
+    container.append(title, subtitle, prompt, choices)
+    this.setContent(container)
   }
 
   private finish(initialGameState?: GameStateUpdatePayload): void {

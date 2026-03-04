@@ -1248,6 +1248,11 @@ export class GameManager {
     updateGameStatus(gameId, 'completed');
     deleteGameSnapshot(gameId);
 
+    // Clear session.gameId for all players so they can join new games
+    for (const session of sessions.getPlayersInGame(gameId)) {
+      sessions.setGameId(session.playerId, null);
+    }
+
     // Clean up
     this.cleanupBots(gameId);
     this.activeGames.delete(gameId);
@@ -1329,6 +1334,10 @@ export class GameManager {
 
   isGameActive(gameId: string): boolean {
     return this.activeGames.has(gameId);
+  }
+
+  getGameName(gameId: string): string | undefined {
+    return this.activeGames.get(gameId)?.state.gameName;
   }
 
   getActiveGameState(gameId: string): EngineState | undefined {

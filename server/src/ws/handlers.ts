@@ -73,6 +73,13 @@ export function handleIdentify(
       gameManager.setPlayerConnected(gamePlayer.game_id, playerId, true);
       logger.info({ playerId, gameId: gamePlayer.game_id }, 'Player reconnected to game');
     }
+  } else {
+    // No active game in DB — clear any stale gameId carried over from a previous session
+    const session = sessions.getByPlayerId(playerId);
+    if (session?.gameId) {
+      sessions.setGameId(playerId, null);
+      logger.info({ playerId }, 'Cleared stale gameId on identify');
+    }
   }
 
   sessions.send(playerId, {
@@ -127,11 +134,20 @@ export function handleJoinGame(
   replayGameManager?: ReplayGameManager,
 ): void {
   if (session.gameId) {
-    sessions.send(session.playerId, {
-      action: 'error',
-      payload: { code: 'ALREADY_IN_GAME', message: 'You are already in a game. Leave first.' },
-    });
-    return;
+    if (gameManager.isGameActive(session.gameId)) {
+      // Game still in progress — send choice to client
+      sessions.send(session.playerId, {
+        action: 'alreadyInGame',
+        payload: {
+          existingGameId: session.gameId,
+          existingGameName: gameManager.getGameName(session.gameId) ?? 'Unknown',
+        },
+      });
+      return;
+    }
+    // Game completed/gone — silently clear stale gameId and fall through to join
+    sessions.setGameId(session.playerId, null);
+    logger.info({ playerId: session.playerId }, 'Auto-cleared stale gameId on join attempt');
   }
 
   // Check if this is a replay game
@@ -420,6 +436,41 @@ export function handleLeaveGame(
 
   // Update lobby for remaining players (broadcastLobbyState is a no-op if game is in progress)
   gameManager.broadcastLobbyState(gameId, sessions);
+}
+
+// ─── rejoinGame ─────────────────────────────────────────────────────────────────
+
+export function handleRejoinGame(
+  session: PlayerSession,
+  sessions: SessionManager,
+  gameManager: GameManager,
+  logger: FastifyBaseLogger,
+): void {
+  if (!session.gameId) {
+    sessions.send(session.playerId, {
+      action: 'error',
+      payload: { code: 'NOT_IN_GAME', message: 'You are not in a game.' },
+    });
+    return;
+  }
+
+  const currentGame = gameManager.getReconnectState(session.playerId, session.gameId);
+  if (!currentGame) {
+    // Game no longer active — clear and tell client
+    sessions.setGameId(session.playerId, null);
+    sessions.send(session.playerId, {
+      action: 'error',
+      payload: { code: 'GAME_NOT_FOUND', message: 'Game is no longer active.' },
+    });
+    return;
+  }
+
+  gameManager.setPlayerConnected(session.gameId, session.playerId, true);
+  sessions.send(session.playerId, {
+    action: 'rejoinedGame',
+    payload: { currentGame },
+  });
+  logger.info({ playerId: session.playerId, gameId: session.gameId }, 'Player rejoined game');
 }
 
 // ─── replayControl ──────────────────────────────────────────────────────────────

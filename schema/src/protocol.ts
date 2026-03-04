@@ -553,6 +553,11 @@ export const LeaveGameMessage = z.object({
   payload: z.object({}).strict(),
 });
 
+export const RejoinGameMessage = z.object({
+  action: z.literal('rejoinGame'),
+  payload: z.object({}).strict(),
+});
+
 export const ReplayControlMessage = z.object({
   action: z.literal('replayControl'),
   payload: ReplayControlPayload,
@@ -584,6 +589,7 @@ export const ClientMessage = z.discriminatedUnion('action', [
   RevealCardsMessage,
   ChatMessage,
   LeaveGameMessage,
+  RejoinGameMessage,
   ReplayControlMessage,
   ReplayCardVisibilityMessage,
   SetSittingOutMessage,
@@ -643,6 +649,27 @@ export const BlindWarningServerMessage = z.object({
   payload: BlindWarningPayload,
 });
 
+export const AlreadyInGamePayload = z.object({
+  existingGameId: z.string().uuid(),
+  existingGameName: z.string(),
+});
+export type AlreadyInGamePayload = z.infer<typeof AlreadyInGamePayload>;
+
+export const AlreadyInGameServerMessage = z.object({
+  action: z.literal('alreadyInGame'),
+  payload: AlreadyInGamePayload,
+});
+
+export const RejoinedGamePayload = z.object({
+  currentGame: GameStateUpdatePayload,
+});
+export type RejoinedGamePayload = z.infer<typeof RejoinedGamePayload>;
+
+export const RejoinedGameServerMessage = z.object({
+  action: z.literal('rejoinedGame'),
+  payload: RejoinedGamePayload,
+});
+
 export const LobbyUpdateServerMessage = z.object({
   action: z.literal('lobbyUpdate'),
   payload: z.object({
@@ -668,6 +695,8 @@ export const ServerMessage = z.discriminatedUnion('action', [
   ReplayStateServerMessage,
   BlindWarningServerMessage,
   LobbyUpdateServerMessage,
+  AlreadyInGameServerMessage,
+  RejoinedGameServerMessage,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
