@@ -5,6 +5,7 @@ interface SettingsData {
   humanAvatarId: number;
   soundEffects: boolean;
   dealerNarration: boolean;
+  sixSevenMode: boolean;
 }
 
 const STORAGE_KEY = 'pokerathome_settings';
@@ -14,6 +15,7 @@ const DEFAULTS: SettingsData = {
   humanAvatarId: 0,
   soundEffects: true,
   dealerNarration: false,
+  sixSevenMode: false,
 };
 
 class GameSettingsClass {
@@ -61,6 +63,15 @@ class GameSettingsClass {
     }
   }
 
+  get sixSevenMode(): boolean { return this.data.sixSevenMode; }
+  set sixSevenMode(v: boolean) {
+    if (this.data.sixSevenMode !== v) {
+      this.data.sixSevenMode = v;
+      this.save();
+      this.notify();
+    }
+  }
+
   onChange(cb: SettingsChangeCallback): () => void {
     this.listeners.push(cb);
     return () => {
@@ -87,6 +98,7 @@ class GameSettingsClass {
         if (typeof parsed.humanAvatarId === 'number') this.data.humanAvatarId = parsed.humanAvatarId;
         if (typeof parsed.soundEffects === 'boolean') this.data.soundEffects = parsed.soundEffects;
         if (typeof parsed.dealerNarration === 'boolean') this.data.dealerNarration = parsed.dealerNarration;
+        if (typeof parsed.sixSevenMode === 'boolean') this.data.sixSevenMode = parsed.sixSevenMode;
       }
     } catch { /* ignore */ }
   }

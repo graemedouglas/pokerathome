@@ -23,6 +23,7 @@ import {
   playCheckSound, playBetSound, playCallSound, playRaiseSound, playAllInSound, playFoldSound,
 } from '../audio/sounds'
 import { speak, cancelSpeech, cardToWords } from '../audio/dealer-narration'
+import { GameSettings } from '../settings/GameSettings'
 import { StatsTracker } from '../stats-tracker'
 import { evaluateHandRank } from '../utils/hand-evaluator'
 
@@ -59,6 +60,12 @@ function freshHandContext(): HandContext {
 function isAllInRunout(serverState: ServerGameState): boolean {
   const active = serverState.players.filter(p => !p.folded)
   return active.length > 1 && active.every(p => p.stack === 0)
+}
+
+/** Returns true if hole cards contain both a 6 and a 7. */
+export function hasSixSeven(holeCards: [string, string]): boolean {
+  const ranks = holeCards.map(c => c.slice(0, -1))
+  return ranks.includes('6') && ranks.includes('7')
 }
 
 export class GameController {
@@ -602,6 +609,17 @@ export class GameController {
             await delay(SHOWDOWN_DELAY)
           }
           await r.animateWinners(winnerIndices)
+
+          if (GameSettings.sixSevenMode) {
+            for (const w of uiState.winners) {
+              const pid = serverState.players.find(p => p.seatIndex === w.playerIndex)?.id
+              const hc = pid ? this.hand.showdownHoleCards.get(pid) : undefined
+              if (hc && hasSixSeven(hc)) {
+                r.playSixSevenAnimation()
+                break
+              }
+            }
+          }
         }
 
         // Track stats

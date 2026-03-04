@@ -533,6 +533,62 @@ export class GameRenderer {
     await this.victoryOverlay.show(standings, reason);
   }
 
+  /** Play the 6-7 arm thing easter egg animation across the screen. */
+  playSixSevenAnimation(): void {
+    const FRAME_A = '\u2517( 6  7 )\u2513';
+    const FRAME_B = '\u250f( 6  7 )\u251b';
+    const DURATION = 3000;
+    const FRAME_INTERVAL = 250;
+
+    const text = new Text({
+      text: FRAME_A,
+      style: {
+        fontSize: 48,
+        fill: COLORS.gold,
+        fontFamily: 'monospace',
+        fontWeight: 'bold',
+        dropShadow: { color: 0x000000, blur: 4, distance: 2, angle: Math.PI / 4 },
+      },
+    });
+    text.anchor.set(0.5);
+    text.x = CANVAS_WIDTH + 200;
+    text.y = TABLE_CENTER_Y;
+    this.app.stage.addChild(text);
+
+    const startX = CANVAS_WIDTH + 200;
+    const endX = -400;
+    const baseY = TABLE_CENTER_Y;
+    const startTime = performance.now();
+    let frame = false;
+
+    const tickFn = () => {
+      const elapsed = performance.now() - startTime;
+      const t = Math.min(elapsed / DURATION, 1);
+
+      // Scroll left
+      text.x = startX + (endX - startX) * t;
+
+      // Sine-wave bounce
+      text.y = baseY + Math.sin(t * Math.PI * 4) * 15;
+
+      // Alternate frames
+      const frameIndex = Math.floor(elapsed / FRAME_INTERVAL);
+      const isB = frameIndex % 2 === 1;
+      if (isB !== frame) {
+        frame = isB;
+        text.text = frame ? FRAME_B : FRAME_A;
+      }
+
+      if (t >= 1) {
+        this.app.ticker.remove(tickFn);
+        this.app.stage.removeChild(text);
+        text.destroy();
+      }
+    };
+
+    this.app.ticker.add(tickFn);
+  }
+
   /** Reset all player cards for new hand */
   resetForNewHand(): void {
     for (const pr of this.playerRenderers) {

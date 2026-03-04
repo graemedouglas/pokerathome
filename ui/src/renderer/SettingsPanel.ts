@@ -14,6 +14,8 @@ export class SettingsPanel extends Container {
   private sfxToggleKnob!: Graphics;
   private ttsToggleBg!: Graphics;
   private ttsToggleKnob!: Graphics;
+  private sixSevenToggleBg!: Graphics;
+  private sixSevenToggleKnob!: Graphics;
   private avatarSprites: Container[] = [];
   private selectedBorder: Graphics | null = null;
   private app: AppLike;
@@ -42,7 +44,7 @@ export class SettingsPanel extends Container {
     this.addChild(this.panel);
 
     const PW = 500;
-    const PH = 520;
+    const PH = 570;
 
     // Panel background
     const bg = new Graphics();
@@ -210,8 +212,48 @@ export class SettingsPanel extends Container {
     ttsDesc.y = ttsToggleY + 16;
     this.panel.addChild(ttsDesc);
 
+    // --- 6-7 Mode Toggle ---
+    const sixSevenToggleY = -PH / 2 + 250;
+    const sixSevenLabel = new Text({
+      text: '6-7 Mode',
+      style: { fontSize: 16, fill: COLORS.textLight, fontFamily: 'Arial' },
+    });
+    sixSevenLabel.anchor.set(0, 0.5);
+    sixSevenLabel.x = -PW / 2 + 40;
+    sixSevenLabel.y = sixSevenToggleY;
+    this.panel.addChild(sixSevenLabel);
+
+    const sixSevenToggleContainer = new Container();
+    sixSevenToggleContainer.x = PW / 2 - 70;
+    sixSevenToggleContainer.y = sixSevenToggleY;
+    sixSevenToggleContainer.eventMode = 'static';
+    sixSevenToggleContainer.cursor = 'pointer';
+
+    this.sixSevenToggleBg = new Graphics();
+    this.drawToggle(this.sixSevenToggleBg, GameSettings.sixSevenMode);
+    sixSevenToggleContainer.addChild(this.sixSevenToggleBg);
+
+    this.sixSevenToggleKnob = new Graphics();
+    this.drawKnob(this.sixSevenToggleKnob, GameSettings.sixSevenMode);
+    sixSevenToggleContainer.addChild(this.sixSevenToggleKnob);
+
+    sixSevenToggleContainer.on('pointerdown', () => {
+      GameSettings.sixSevenMode = !GameSettings.sixSevenMode;
+      this.drawToggle(this.sixSevenToggleBg, GameSettings.sixSevenMode);
+      this.drawKnob(this.sixSevenToggleKnob, GameSettings.sixSevenMode);
+    });
+    this.panel.addChild(sixSevenToggleContainer);
+
+    const sixSevenDesc = new Text({
+      text: 'Easter egg animation when you win with 6-7',
+      style: { fontSize: 11, fill: COLORS.textMuted, fontFamily: 'Arial' },
+    });
+    sixSevenDesc.x = -PW / 2 + 40;
+    sixSevenDesc.y = sixSevenToggleY + 16;
+    this.panel.addChild(sixSevenDesc);
+
     // --- Avatar Picker ---
-    const avatarHeaderY = -PH / 2 + 260;
+    const avatarHeaderY = -PH / 2 + 310;
     const avatarLabel = new Text({
       text: 'Your Avatar',
       style: { fontSize: 16, fill: COLORS.textLight, fontFamily: 'Arial' },
@@ -307,6 +349,8 @@ export class SettingsPanel extends Container {
     this.drawKnob(this.sfxToggleKnob, GameSettings.soundEffects);
     this.drawToggle(this.ttsToggleBg, GameSettings.dealerNarration);
     this.drawKnob(this.ttsToggleKnob, GameSettings.dealerNarration);
+    this.drawToggle(this.sixSevenToggleBg, GameSettings.sixSevenMode);
+    this.drawKnob(this.sixSevenToggleKnob, GameSettings.sixSevenMode);
   }
 
   hide(): void {
