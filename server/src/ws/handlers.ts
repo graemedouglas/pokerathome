@@ -59,7 +59,7 @@ export function handleIdentify(
 
   // Check if player was in a game (reconnect scenario)
   const gamePlayer = getPlayerGame(playerId);
-  let currentGame: object | undefined;
+  let pendingGame: { gameId: string; gameName: string } | undefined;
 
   if (gamePlayer) {
     if (gamePlayer.role === 'spectator') {
@@ -68,10 +68,14 @@ export function handleIdentify(
       sessions.setGameId(playerId, null);
       logger.info({ playerId, gameId: gamePlayer.game_id }, 'Stale spectator record cleaned up on identify');
     } else {
+      // Set gameId so leaveGame/rejoinGame work, but don't auto-reconnect —
+      // let the client show a choice (Rejoin or Leave)
       sessions.setGameId(playerId, gamePlayer.game_id);
-      currentGame = gameManager.getReconnectState(playerId, gamePlayer.game_id);
-      gameManager.setPlayerConnected(gamePlayer.game_id, playerId, true);
-      logger.info({ playerId, gameId: gamePlayer.game_id }, 'Player reconnected to game');
+      pendingGame = {
+        gameId: gamePlayer.game_id,
+        gameName: gameManager.getGameName(gamePlayer.game_id) ?? 'Unknown',
+      };
+      logger.info({ playerId, gameId: gamePlayer.game_id }, 'Player has active game — awaiting choice');
     }
   } else {
     // No active game in DB — clear any stale gameId carried over from a previous session
@@ -87,7 +91,7 @@ export function handleIdentify(
     payload: {
       playerId,
       reconnectToken,
-      ...(currentGame ? { currentGame } : {}),
+      ...(pendingGame ? { pendingGame } : {}),
     },
   });
 }

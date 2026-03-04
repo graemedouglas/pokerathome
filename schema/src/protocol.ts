@@ -416,6 +416,10 @@ export const IdentifiedPayload = z.object({
   playerId: z.string().uuid(),
   reconnectToken: z.string(),
   currentGame: GameStateUpdatePayload.optional(),
+  pendingGame: z.object({
+    gameId: z.string().uuid(),
+    gameName: z.string(),
+  }).optional(),
 });
 export type IdentifiedPayload = z.infer<typeof IdentifiedPayload>;
 

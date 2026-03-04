@@ -227,7 +227,7 @@ describe('handleIdentify spectator cleanup', () => {
     expect(hasMessage(socket2, 'error')).toBe(false);
   });
 
-  test('reconnecting regular player still gets reconnect state', () => {
+  test('reconnecting regular player gets pendingGame (not auto-reconnected)', () => {
     const player = createPlayer('Player Pete');
     const socket1 = createMockSocket();
 
@@ -243,12 +243,15 @@ describe('handleIdentify spectator cleanup', () => {
       sessions, gameManager, mockLogger,
     );
 
-    // Should be reconnected to the game, not cleaned up
+    // Should have gameId set (for rejoin/leave) but not auto-reconnected
     const newSession = sessions.getByPlayerId(player.id)!;
     expect(newSession.gameId).toBe(gameId);
 
     const msg = getLastMessage(socket2);
     expect(msg.action).toBe('identified');
-    expect(msg.payload.currentGame).toBeDefined();
+    expect(msg.payload.currentGame).toBeUndefined();
+    expect(msg.payload.pendingGame).toBeDefined();
+    expect(msg.payload.pendingGame.gameId).toBe(gameId);
+    expect(msg.payload.pendingGame.gameName).toBe('Test Game');
   });
 });

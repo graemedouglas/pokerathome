@@ -188,6 +188,32 @@ describe('Stale gameId after game completion', () => {
   });
 });
 
+describe('handleIdentify sends pendingGame for active games', () => {
+
+  test('reconnecting player gets pendingGame instead of currentGame', () => {
+    const p1 = joinPlayer('Alice');
+
+    // Reconnect via handleIdentify
+    const socket2 = createMockSocket();
+    handleIdentify(
+      socket2,
+      { displayName: 'Alice', reconnectToken: p1.player.reconnect_token },
+      sessions, gameManager, mockLogger,
+    );
+
+    const msg = getLastMessage(socket2);
+    expect(msg.action).toBe('identified');
+    expect(msg.payload.currentGame).toBeUndefined();
+    expect(msg.payload.pendingGame).toBeDefined();
+    expect(msg.payload.pendingGame.gameId).toBe(gameId);
+    expect(msg.payload.pendingGame.gameName).toBe('Test Game');
+
+    // Session gameId should still be set (for rejoin/leave)
+    const session = sessions.getByPlayerId(p1.player.id)!;
+    expect(session.gameId).toBe(gameId);
+  });
+});
+
 describe('handleIdentify stale gameId cleanup', () => {
 
   test('clears stale gameId when game is no longer active', () => {

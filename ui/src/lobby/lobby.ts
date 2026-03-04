@@ -317,14 +317,24 @@ export class Lobby {
   private handleMessage(msg: ServerMessage): void {
     switch (msg.action) {
       case 'identified': {
-        const payload = msg.payload as { playerId: string; reconnectToken: string; currentGame?: GameStateUpdatePayload }
+        const payload = msg.payload as {
+          playerId: string
+          reconnectToken: string
+          currentGame?: GameStateUpdatePayload
+          pendingGame?: { gameId: string; gameName: string }
+        }
         this.playerId = payload.playerId
         this.reconnectToken = payload.reconnectToken
         WsClient.storeReconnectToken(payload.reconnectToken)
 
+        if (payload.pendingGame) {
+          // Player was in an active game — show choice to rejoin or leave
+          this.showAlreadyInGameScreen(payload.pendingGame.gameId, payload.pendingGame.gameName)
+          return
+        }
+
         if (payload.currentGame) {
-          // Reconnect scenario — detect spectator role from game state so the
-          // controller and renderer are initialised correctly (Bug 4 fix).
+          // Direct reconnect fallback
           const myPlayer = payload.currentGame.gameState.players.find(p => p.id === this.playerId)
           this.isSpectator = myPlayer?.role === 'spectator'
           this.finish(payload.currentGame)
