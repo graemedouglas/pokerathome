@@ -410,7 +410,7 @@ function postBlinds(state: EngineState, antes?: Array<{ playerId: string; amount
   state = applyBet(state, sbPlayer.id, sbAmount);
   state = applyBet(state, bbPlayer.id, bbAmount);
   state.currentBet = bbAmount;
-  state.lastRaiseSize = bbAmount;
+  state.lastRaiseSize = state.bigBlindAmount; // Use nominal BB, not short-posted amount (TDA Rule 43)
 
   // Mark all-in if blind consumed entire stack
   state = {
@@ -515,9 +515,13 @@ export function processAction(
       state = applyBet(state, playerId, allInAmount);
       if (isRaise) {
         const raiseIncrement = newBet - state.currentBet;
+        const isFullRaise = raiseIncrement >= state.lastRaiseSize;
         state.lastRaiseSize = Math.max(raiseIncrement, state.lastRaiseSize);
         state.currentBet = newBet;
-        state.actedThisRound = []; // Reset — everyone else must respond
+        if (isFullRaise) {
+          state.actedThisRound = []; // Full raise — everyone can re-raise
+        }
+        // Short all-in (TDA Rule 47): don't reopen betting for already-acted players
       }
       state = markAllIn(state, playerId);
       break;
@@ -808,8 +812,16 @@ function getFirstToActPreFlop(state: EngineState): EnginePlayer | null {
   const isHeadsUp = activePlayers.length === 2;
 
   if (isHeadsUp) {
-    // Heads-up: dealer/SB acts first pre-flop
-    return state.players.find((p) => p.seatIndex === state.dealerSeatIndex && !p.folded) ?? null;
+    // Heads-up: dealer/SB acts first pre-flop (skip if all-in from blind posting)
+    const dealer = state.players.find(
+      (p) => p.seatIndex === state.dealerSeatIndex && !p.folded && !p.isAllIn
+    );
+    if (dealer) return dealer;
+    return findNextPlayer(
+      state.players,
+      state.dealerSeatIndex,
+      (p) => !p.folded && !p.isAllIn && p.role === 'player'
+    );
   }
 
   // Multi-way: UTG = player after BB. BB is 2 seats after dealer.

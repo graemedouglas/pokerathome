@@ -37,7 +37,8 @@
       "Bash(npm ls jest ts-jest)"
     ],
     "additionalDirectories": [
-      "C:\\Users\\gdoug\\code\\pokerathome\\.claude"
+      "C:\\Users\\gdoug\\code\\pokerathome\\.claude",
+      "c:\\Users\\gdoug\\.claude\\plans"
     ]
   },
   "autoUpdatesChannel": "latest"
