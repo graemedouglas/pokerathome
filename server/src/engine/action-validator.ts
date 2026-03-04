@@ -45,9 +45,11 @@ export function getAvailableActions(state: EngineState, playerId: string): Actio
   }
 
   // RAISE: when there's a bet to raise above
-  // TDA Rule 47: player who already acted can't raise after a short all-in
+  // TDA Rule 47: player who already acted can't raise after a short all-in,
+  // UNLESS cumulative short all-ins mean they now face at least a full raise
   const alreadyActed = state.actedThisRound.includes(playerId);
-  if (state.currentBet > 0 && player.stack > callAmount && !alreadyActed) {
+  const facingFullRaise = alreadyActed && (state.currentBet - player.bet) >= state.lastRaiseSize;
+  if (state.currentBet > 0 && player.stack > callAmount && (!alreadyActed || facingFullRaise)) {
     let minRaiseTotal = callAmount + state.lastRaiseSize;
     minRaiseTotal = roundUpToChipDenom(minRaiseTotal, chipDenom);
     const maxRaiseTotal = roundDownToChipDenom(player.stack, chipDenom) || player.stack;

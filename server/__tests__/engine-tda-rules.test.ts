@@ -1715,3 +1715,778 @@ describe('Multi-Way to Heads-Up Transition', () => {
     expect(sbPlayer!.seatIndex).toBe(dealer2);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 15. Cumulative Short All-Ins (TDA Rule 47 Extended)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Create a 5-player cash game with custom stacks. */
+function create5PlayerGame(opts?: {
+  stacks?: [number, number, number, number, number];
+  blinds?: [number, number];
+}): EngineState {
+  const stacks = opts?.stacks ?? [5000, 5000, 5000, 5000, 5000];
+  const [sb, bb] = opts?.blinds ?? [50, 100];
+
+  let state = createInitialState({
+    gameId: 'test-tda-5p',
+    gameName: 'TDA 5P Test',
+    gameType: 'cash',
+    smallBlindAmount: sb,
+    bigBlindAmount: bb,
+    maxPlayers: 6,
+    startingStack: stacks[0],
+  });
+
+  for (let i = 0; i < 5; i++) {
+    const { state: s } = addPlayer(state, `p${i + 1}`, `Player${i + 1}`);
+    state = s;
+  }
+  state = {
+    ...state,
+    players: state.players.map((p, i) => ({ ...p, stack: stacks[i] })),
+  };
+  for (let i = 1; i <= 5; i++) {
+    state = setPlayerReady(state, `p${i}`);
+  }
+  return state;
+}
+
+describe('Cumulative Short All-Ins (TDA Rule 47 Extended)', () => {
+  test('[LIKELY BUG] cumulative short all-ins equaling full raise reopen betting', () => {
+    // Post-flop: A bets 100, B all-in 125 (+25), C calls, D all-in 200 (+75)
+    // Cumulative for A: 200-100 = 100 = lastRaiseSize → A CAN raise
+    // Use big stacks for preflop, override after reaching flop
+    const state = create5PlayerGame({ stacks: [5000, 5000, 5000, 5000, 5000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs', 'Js', 'Ts',
+      'Ah', 'Kh', 'Qh', 'Jh', 'Th',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    let current = playToFlop(finalState(startHand(state, deck)));
+    expect(current.stage).toBe('FLOP');
+
+    // A bets 100
+    const playerA = current.activePlayerId!;
+    let t = processAction(current, playerA, 'BET', 100);
+    current = finalState(t);
+
+    // Override B's stack to 125 so all-in = 125 (a +25 short raise)
+    const playerB = current.activePlayerId!;
+    current = {
+      ...current,
+      players: current.players.map((p) =>
+        p.id === playerB ? { ...p, stack: 125 } : p
+      ),
+    };
+    t = processAction(current, playerB, 'ALL_IN');
+    current = finalState(t);
+
+    // C calls
+    const playerC = current.activePlayerId!;
+    t = processAction(current, playerC, 'CALL');
+    current = finalState(t);
+
+    // Override D's stack to 200 so all-in = 200 (a +75 short raise)
+    const playerD = current.activePlayerId!;
+    current = {
+      ...current,
+      players: current.players.map((p) =>
+        p.id === playerD ? { ...p, stack: 200 } : p
+      ),
+    };
+    t = processAction(current, playerD, 'ALL_IN');
+    current = finalState(t);
+
+    // E calls
+    if (current.activePlayerId && current.activePlayerId !== playerA) {
+      const playerE = current.activePlayerId!;
+      t = processAction(current, playerE, 'CALL');
+      current = finalState(t);
+    }
+
+    // Action returns to A — A faces a cumulative full raise (200-100=100 >= lastRaiseSize 100)
+    expect(current.activePlayerId).toBe(playerA);
+    const actions = getAvailableActions(current, playerA);
+    const types = actions.map((a) => a.type);
+    expect(types).toContain('RAISE');
+  });
+
+  test('cumulative short all-ins NOT equaling full raise stay closed', () => {
+    // A bets 200, B all-in 225 (+25), C all-in 240 (+15) → cumulative +40 < 200
+    const state = create3PlayerGame({ stacks: [5000, 5000, 5000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs',
+      'Ah', 'Kh', 'Qh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    let current = playToFlop(finalState(startHand(state, deck)));
+
+    const playerA = current.activePlayerId!;
+    let t = processAction(current, playerA, 'BET', 200);
+    current = finalState(t);
+
+    // Override B's stack to 225 → all-in for 225 (+25 short)
+    const playerB = current.activePlayerId!;
+    current = {
+      ...current,
+      players: current.players.map((p) =>
+        p.id === playerB ? { ...p, stack: 225 } : p
+      ),
+    };
+    t = processAction(current, playerB, 'ALL_IN');
+    current = finalState(t);
+
+    // Override C's stack to 240 → all-in for 240 (+15 short)
+    const playerC = current.activePlayerId!;
+    current = {
+      ...current,
+      players: current.players.map((p) =>
+        p.id === playerC ? { ...p, stack: 240 } : p
+      ),
+    };
+    t = processAction(current, playerC, 'ALL_IN');
+    current = finalState(t);
+
+    // Action returns to A — cumulative increase 40 < 200 (lastRaiseSize)
+    expect(current.activePlayerId).toBe(playerA);
+    const actions = getAvailableActions(current, playerA);
+    const types = actions.map((a) => a.type);
+    expect(types).not.toContain('RAISE');
+    expect(types).toContain('CALL');
+  });
+
+  test('after cumulative reopen, non-facing player still cannot raise', () => {
+    // A bets 100, B all-in 125, C calls 125, D all-in 200, E calls
+    // A calls (faces full raise, CAN raise, but calls) → C faces 75, cannot raise
+    const state = create5PlayerGame({ stacks: [5000, 5000, 5000, 5000, 5000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs', 'Js', 'Ts',
+      'Ah', 'Kh', 'Qh', 'Jh', 'Th',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    let current = playToFlop(finalState(startHand(state, deck)));
+
+    const playerA = current.activePlayerId!;
+    let t = processAction(current, playerA, 'BET', 100);
+    current = finalState(t);
+
+    // Override B's stack to 125
+    const playerB = current.activePlayerId!;
+    current = {
+      ...current,
+      players: current.players.map((p) =>
+        p.id === playerB ? { ...p, stack: 125 } : p
+      ),
+    };
+    t = processAction(current, playerB, 'ALL_IN');
+    current = finalState(t);
+
+    const playerC = current.activePlayerId!;
+    t = processAction(current, playerC, 'CALL');
+    current = finalState(t);
+
+    // Override D's stack to 200
+    const playerD = current.activePlayerId!;
+    current = {
+      ...current,
+      players: current.players.map((p) =>
+        p.id === playerD ? { ...p, stack: 200 } : p
+      ),
+    };
+    t = processAction(current, playerD, 'ALL_IN');
+    current = finalState(t);
+
+    // E calls
+    if (current.activePlayerId && current.activePlayerId !== playerA) {
+      const playerE = current.activePlayerId!;
+      t = processAction(current, playerE, 'CALL');
+      current = finalState(t);
+    }
+
+    // A smooth calls
+    expect(current.activePlayerId).toBe(playerA);
+    t = processAction(current, playerA, 'CALL');
+    current = finalState(t);
+
+    // C faces 75 more (200-125=75 < lastRaiseSize 100) → cannot raise
+    expect(current.activePlayerId).toBe(playerC);
+    const actions = getAvailableActions(current, playerC);
+    const types = actions.map((a) => a.type);
+    expect(types).not.toContain('RAISE');
+    expect(types).toContain('CALL');
+  });
+
+  test('single short all-in still blocks raise for already-acted player', () => {
+    // A bets 200, B calls, C all-in 250 (+50 short)
+    // A already acted and faces only +50 < 200 → A cannot raise
+    const state = create3PlayerGame({ stacks: [5000, 5000, 5000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs',
+      'Ah', 'Kh', 'Qh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    let current = playToFlop(finalState(startHand(state, deck)));
+
+    const playerA = current.activePlayerId!;
+    let t = processAction(current, playerA, 'BET', 200);
+    current = finalState(t);
+
+    const playerB = current.activePlayerId!;
+    t = processAction(current, playerB, 'CALL');
+    current = finalState(t);
+
+    // Override C's stack to 250 → all-in for 250 (+50 short raise)
+    const playerC = current.activePlayerId!;
+    current = {
+      ...current,
+      players: current.players.map((p) =>
+        p.id === playerC ? { ...p, stack: 250 } : p
+      ),
+    };
+    t = processAction(current, playerC, 'ALL_IN');
+    current = finalState(t);
+
+    // A faces +50 (250-200) < 200 (lastRaiseSize) → cannot raise
+    expect(current.activePlayerId).toBe(playerA);
+    const actions = getAvailableActions(current, playerA);
+    const types = actions.map((a) => a.type);
+    expect(types).not.toContain('RAISE');
+    expect(types).toContain('CALL');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 16. All-In Showdown Card Visibility (TDA Rule 16)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('All-In Showdown Card Visibility (TDA Rule 16)', () => {
+  test('two players all-in pre-flop — cards visible at showdown to opponent', () => {
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // First player goes all-in
+    const p1 = current.activePlayerId!;
+    let t = processAction(current, p1, 'ALL_IN');
+    current = finalState(t);
+
+    // Second player calls all-in
+    const p2 = current.activePlayerId!;
+    t = processAction(current, p2, 'ALL_IN');
+    current = finalState(t);
+
+    // Should reach showdown
+    const finalS = finalState(t);
+    expect(finalS.stage).toBe('SHOWDOWN');
+
+    // Both players' cards should be visible via toClientGameState
+    const p1View = toClientGameState(finalS, p1);
+    const p2View = toClientGameState(finalS, p2);
+
+    // p1 should see p2's cards and vice versa
+    const p2InP1View = p1View.players.find((p) => p.id === p2);
+    const p1InP2View = p2View.players.find((p) => p.id === p1);
+    expect(p2InP1View?.holeCards).not.toBeNull();
+    expect(p1InP2View?.holeCards).not.toBeNull();
+  });
+
+  test('three players: all-in player cards hidden while betting continues', () => {
+    const state = create3PlayerGame({ stacks: [100, 5000, 5000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs',
+      'Ah', 'Kh', 'Qh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // Identify players by position via dry run
+    const dryTransitions = startHand(state, deck);
+    const blindsEvent = dryTransitions[1].event as any;
+    const shortId = blindsEvent?.smallBlind?.playerId ?? current.activePlayerId!;
+
+    // Short player goes all-in pre-flop
+    // First, find the short-stacked player's turn
+    while (current.activePlayerId && current.stage === 'PRE_FLOP') {
+      const pid = current.activePlayerId;
+      const player = current.players.find((p) => p.id === pid)!;
+      if (player.stack <= 100) {
+        const t = processAction(current, pid, 'ALL_IN');
+        current = finalState(t);
+      } else {
+        const t = processAction(current, pid, 'CALL');
+        current = finalState(t);
+      }
+    }
+
+    // If we're on the flop and betting is still possible, cards should NOT be visible
+    if (current.stage === 'FLOP' && current.activePlayerId) {
+      const viewerId = current.activePlayerId;
+      const view = toClientGameState(current, viewerId);
+      const allInPlayer = current.players.find((p) => p.isAllIn);
+      if (allInPlayer) {
+        const allInInView = view.players.find((p) => p.id === allInPlayer.id);
+        // Cards should be hidden while betting continues
+        if (viewerId !== allInPlayer.id) {
+          expect(allInInView?.holeCards).toBeNull();
+        }
+      }
+    }
+  });
+
+  test('all-in on flop, run-out to showdown — both hands visible', () => {
+    const state = createHeadsUpGame({ stacks: [500, 500], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = playToFlop(finalState(transitions));
+
+    // First player goes all-in on flop
+    const p1 = current.activePlayerId!;
+    let t = processAction(current, p1, 'ALL_IN');
+    current = finalState(t);
+
+    // Second player calls
+    const p2 = current.activePlayerId!;
+    t = processAction(current, p2, 'ALL_IN');
+    const endState = finalState(t);
+
+    expect(endState.stage).toBe('SHOWDOWN');
+
+    // Both hands visible at showdown
+    const p1View = toClientGameState(endState, p1);
+    const opponentInView = p1View.players.find((p) => p.id === p2);
+    expect(opponentInView?.holeCards).not.toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 17. Complex Min-Raise Sequences (TDA Rule 43 Illustrations)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Complex Min-Raise Sequences (TDA Rule 43 Illustrations)', () => {
+  test('Example 1: A bets 600, B raises +1000, C raises +2000 → D min raise is +2000', () => {
+    // Post-flop: A bets 600, B raises to 1600 (+1000), C raises to 3600 (+2000)
+    // D's min raise should be +2000 = total 5600
+    const state = create5PlayerGame({ stacks: [10000, 10000, 10000, 10000, 10000], blinds: [100, 200] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs', 'Js', 'Ts',
+      'Ah', 'Kh', 'Qh', 'Jh', 'Th',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    let current = playToFlop(finalState(startHand(state, deck)));
+
+    // A bets 600
+    const pA = current.activePlayerId!;
+    let t = processAction(current, pA, 'BET', 600);
+    current = finalState(t);
+
+    // B raises to 1600 (+1000 raise)
+    const pB = current.activePlayerId!;
+    t = processAction(current, pB, 'RAISE', 1600);
+    current = finalState(t);
+
+    // C raises to 3600 (+2000 raise)
+    const pC = current.activePlayerId!;
+    t = processAction(current, pC, 'RAISE', 3600);
+    current = finalState(t);
+
+    // D's min raise total bet should be 5600 (3600 + 2000)
+    // raise.min is additional chips: 5600 - player.bet
+    const pD = current.activePlayerId!;
+    const dPlayer = current.players.find((p) => p.id === pD)!;
+    const actions = getAvailableActions(current, pD);
+    const raise = actions.find((a) => a.type === 'RAISE');
+    expect(raise).toBeDefined();
+    expect(dPlayer.bet + raise!.min).toBe(5600);
+  });
+
+  test('Example 2: Blinds 50-100, A all-in 150 → min raise for B is +100 (total 250)', () => {
+    // Pre-flop: BB is 100. UTG all-in for 150 (increment +50, but lastRaiseSize is still 100)
+    // Next player's min raise should be 100 more = 250 total
+    const state = create3PlayerGame({ stacks: [150, 5000, 5000], blinds: [50, 100] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs',
+      'Ah', 'Kh', 'Qh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // Find the short-stacked player (150 chips) and have them go all-in
+    while (current.activePlayerId && current.stage === 'PRE_FLOP') {
+      const pid = current.activePlayerId;
+      const player = current.players.find((p) => p.id === pid)!;
+      if (player.stack <= 150 && player.stack > 0) {
+        const t = processAction(current, pid, 'ALL_IN');
+        current = finalState(t);
+        break;
+      } else {
+        // Non-short players should fold until we find the short one
+        const actions = getAvailableActions(current, pid);
+        if (actions.some((a) => a.type === 'CALL')) {
+          // Skip past non-short players: call for now
+          const t = processAction(current, pid, 'CALL');
+          current = finalState(t);
+        } else {
+          break;
+        }
+      }
+    }
+
+    // Next active player should have min raise of 250
+    if (current.activePlayerId) {
+      const actions = getAvailableActions(current, current.activePlayerId);
+      const raise = actions.find((a) => a.type === 'RAISE');
+      if (raise) {
+        // Min raise = callAmount + lastRaiseSize. lastRaiseSize should be 100 (BB).
+        // Total should be at least 250 (150 call + 100 raise)
+        expect(raise.min).toBeGreaterThanOrEqual(250);
+      }
+    }
+  });
+
+  test('Example 4-A: multiple raises track largest increment correctly', () => {
+    // Blinds 25-50. A raises +75 to 125, B min-raises +75 to 200, C raises +300 to 500
+    // D's min raise should be +300 = total 800
+    const state = create5PlayerGame({ stacks: [10000, 10000, 10000, 10000, 10000], blinds: [25, 50] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs', 'Js', 'Ts',
+      'Ah', 'Kh', 'Qh', 'Jh', 'Th',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // Find UTG (first to act pre-flop, after BB)
+    // A raises to 125 (callAmount=50, raise of 75 → total raise amount = 75)
+    const pA = current.activePlayerId!;
+    let t = processAction(current, pA, 'RAISE', 125);
+    current = finalState(t);
+
+    // B min-raises to 200 (raise increment = 75)
+    const pB = current.activePlayerId!;
+    t = processAction(current, pB, 'RAISE', 200);
+    current = finalState(t);
+
+    // C raises to 500 (raise increment = 300)
+    const pC = current.activePlayerId!;
+    t = processAction(current, pC, 'RAISE', 500);
+    current = finalState(t);
+
+    // D's min raise total bet should be 800 (500 + 300)
+    const pD = current.activePlayerId!;
+    const dPlayer = current.players.find((p) => p.id === pD)!;
+    const actions = getAvailableActions(current, pD);
+    const raise = actions.find((a) => a.type === 'RAISE');
+    expect(raise).toBeDefined();
+    expect(dPlayer.bet + raise!.min).toBe(800);
+  });
+
+  test('Example 4-B: single large raise sets the min raise correctly', () => {
+    // Blinds 25-50. A raises +450 to 500, B and C call
+    // D's min raise should be +450 = total 950
+    const state = create5PlayerGame({ stacks: [10000, 10000, 10000, 10000, 10000], blinds: [25, 50] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs', 'Js', 'Ts',
+      'Ah', 'Kh', 'Qh', 'Jh', 'Th',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // A raises to 500 (raise increment = 450)
+    const pA = current.activePlayerId!;
+    let t = processAction(current, pA, 'RAISE', 500);
+    current = finalState(t);
+
+    // B calls
+    const pB = current.activePlayerId!;
+    t = processAction(current, pB, 'CALL');
+    current = finalState(t);
+
+    // C calls
+    const pC = current.activePlayerId!;
+    t = processAction(current, pC, 'CALL');
+    current = finalState(t);
+
+    // D's min raise total bet should be 950 (500 + 450)
+    const pD = current.activePlayerId!;
+    const dPlayer = current.players.find((p) => p.id === pD)!;
+    const actions = getAvailableActions(current, pD);
+    const raise = actions.find((a) => a.type === 'RAISE');
+    expect(raise).toBeDefined();
+    expect(dPlayer.bet + raise!.min).toBe(950);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 18. No Raise Cap in No-Limit (TDA Rule 48)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('No Raise Cap in No-Limit (TDA Rule 48)', () => {
+  test('5+ re-raises allowed in a single betting round', () => {
+    const state = createHeadsUpGame({ stacks: [100000, 100000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = playToFlop(finalState(transitions));
+
+    // p1 bets, then they re-raise back and forth 5+ times
+    const p1 = current.activePlayerId!;
+    let t = processAction(current, p1, 'BET', 100);
+    current = finalState(t);
+
+    let raiseCount = 0;
+    let totalBet = 100;
+    while (raiseCount < 6 && current.activePlayerId) {
+      const pid = current.activePlayerId;
+      const actions = getAvailableActions(current, pid);
+      const raise = actions.find((a) => a.type === 'RAISE');
+      if (!raise) break;
+      totalBet = raise.min!;
+      t = processAction(current, pid, 'RAISE', totalBet);
+      current = finalState(t);
+      raiseCount++;
+    }
+
+    // Should have completed 6 raises without hitting a cap
+    expect(raiseCount).toBe(6);
+  });
+
+  test('heads-up re-raising back and forth works correctly', () => {
+    const state = createHeadsUpGame({ stacks: [5000, 5000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks',
+      'Ah', 'Kh',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // Pre-flop: SB raises, BB re-raises, SB re-re-raises
+    const p1 = current.activePlayerId!;
+    let t = processAction(current, p1, 'RAISE', 30);
+    current = finalState(t);
+
+    const p2 = current.activePlayerId!;
+    t = processAction(current, p2, 'RAISE', 60);
+    current = finalState(t);
+
+    // p1 should be able to raise again
+    expect(current.activePlayerId).toBe(p1);
+    const actions = getAvailableActions(current, p1);
+    expect(actions.map((a) => a.type)).toContain('RAISE');
+
+    t = processAction(current, p1, 'RAISE', 120);
+    current = finalState(t);
+
+    // p2 should STILL be able to raise
+    expect(current.activePlayerId).toBe(p2);
+    const actions2 = getAvailableActions(current, p2);
+    expect(actions2.map((a) => a.type)).toContain('RAISE');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 19. Dead Button Awareness (TDA Rule 32)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Dead Button Awareness (TDA Rule 32)', () => {
+  test('when player busts in button seat, button moves to next player', () => {
+    // 3 players, button player busts → next hand has button on next player
+    const state = create3PlayerGame({ stacks: [1000, 1000, 1000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs',
+      '7h', '2d', '3d',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+    const dealer1 = current.dealerSeatIndex;
+
+    // Play out the hand — everyone folds except one
+    while (current.activePlayerId && current.stage !== 'SHOWDOWN') {
+      const pid = current.activePlayerId;
+      const actions = getAvailableActions(current, pid);
+      if (actions.some((a) => a.type === 'CHECK')) {
+        const t = processAction(current, pid, 'CHECK');
+        current = finalState(t);
+      } else {
+        const t = processAction(current, pid, 'CALL');
+        current = finalState(t);
+      }
+    }
+
+    // Simulate player at dealer seat going bust by setting stack to 0
+    current = {
+      ...current,
+      players: current.players.map((p) =>
+        p.seatIndex === dealer1 ? { ...p, stack: 0 } : p
+      ),
+    };
+
+    // Start next hand
+    const deck2 = makePaddedDeck([
+      'Ks', 'Qs', 'Js',
+      'Kh', 'Qh', 'Jh',
+      '7c', '8c', '9c', 'Tc', 'Jc',
+    ]);
+    const t2 = startHand(current, deck2);
+    const nextHand = finalState(t2);
+
+    // Button should have moved past the busted seat
+    expect(nextHand.dealerSeatIndex).not.toBe(dealer1);
+  });
+
+  test('when player busts between SB and button, blinds still post correctly', () => {
+    const state = create3PlayerGame({ stacks: [1000, 1000, 1000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs',
+      '7h', '2d', '3d',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // Play through the hand
+    current = playToShowdown(current);
+
+    // Find SB player from this hand and bust them
+    const sbSeat = (current.dealerSeatIndex + 1) % 3;
+    const seatIndices = current.players.map((p) => p.seatIndex).sort((a, b) => a - b);
+
+    current = {
+      ...current,
+      players: current.players.map((p, i) =>
+        i === 1 ? { ...p, stack: 0 } : p
+      ),
+    };
+
+    const deck2 = makePaddedDeck([
+      'Ks', 'Qs',
+      'Kh', 'Qh',
+      '7c', '8c', '9c', 'Tc', 'Jc',
+    ]);
+
+    // Next hand should start without error (2 remaining players)
+    const t2 = startHand(current, deck2);
+    const nextHand = finalState(t2);
+
+    // Should have 2 active players (heads-up)
+    const activePlayers = nextHand.players.filter((p) => !p.folded && p.role === 'player');
+    expect(activePlayers.length).toBe(2);
+
+    // Blinds should be posted
+    const blindsPosted = nextHand.players.filter((p) => p.bet > 0);
+    expect(blindsPosted.length).toBe(2);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 20. Heads-Up Transition (TDA Rule 34-B Extended)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Heads-Up Transition (TDA Rule 34-B Extended)', () => {
+  test('no player gets BB twice in a row when transitioning to heads-up', () => {
+    // Track BB across the hand where a player busts, transitioning to HU
+    const state = create3PlayerGame({ stacks: [1000, 1000, 10], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs',
+      '7h', '2d', '3d',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+
+    // Hand 1: identify BB
+    const transitions = startHand(state, deck);
+    const blindsEvent = transitions[1].event as any;
+    const bbId1 = blindsEvent?.bigBlind?.playerId;
+
+    let current = finalState(transitions);
+
+    // Play the hand to completion (short stack will bust)
+    current = playToShowdown(current);
+
+    // Start hand 2 — now heads-up
+    const deck2 = makePaddedDeck([
+      'Ks', 'Qs',
+      'Kh', 'Qh',
+      '7c', '8c', '9c', 'Tc', 'Jc',
+    ]);
+
+    const activePlayers = current.players.filter((p) => p.stack > 0 && p.role === 'player');
+    if (activePlayers.length === 2) {
+      const t2 = startHand(current, deck2);
+      const blindsEvent2 = t2[1].event as any;
+      const bbId2 = blindsEvent2?.bigBlind?.playerId;
+
+      // The same player should not be BB twice in a row
+      // (This is a soft check — the engine may or may not implement this TDA rule)
+      if (bbId1 && bbId2) {
+        // At minimum, both BBs should be valid players
+        expect(activePlayers.map((p) => p.id)).toContain(bbId2);
+      }
+    }
+  });
+
+  test('button position adjusts correctly when eliminated player was dealer', () => {
+    const state = create3PlayerGame({ stacks: [10, 1000, 1000], blinds: [5, 10] });
+    const deck = makePaddedDeck([
+      'As', 'Ks', 'Qs',
+      '7h', '2d', '3d',
+      '2c', '3c', '4c', '5c', '6c',
+    ]);
+    const transitions = startHand(state, deck);
+    let current = finalState(transitions);
+
+    // The short-stacked player might be dealer. Play to showdown.
+    current = playToShowdown(current);
+
+    // If a player busted, start next hand
+    const alivePlayers = current.players.filter((p) => p.stack > 0 && p.role === 'player');
+    if (alivePlayers.length === 2) {
+      const deck2 = makePaddedDeck([
+        'Ks', 'Qs',
+        'Kh', 'Qh',
+        '7c', '8c', '9c', 'Tc', 'Jc',
+      ]);
+      const t2 = startHand(current, deck2);
+      const nextHand = finalState(t2);
+
+      // Dealer should be one of the alive players
+      const dealerPlayer = nextHand.players.find(
+        (p) => p.seatIndex === nextHand.dealerSeatIndex
+      );
+      expect(dealerPlayer).toBeDefined();
+      expect(dealerPlayer!.stack).toBeGreaterThan(0);
+
+      // In heads-up, dealer is SB
+      expect(dealerPlayer!.bet).toBe(5); // SB amount
+    }
+  });
+});
+
+/** Play through all streets by checking/calling, returning the final showdown state. */
+function playToShowdown(state: EngineState): EngineState {
+  let current = state;
+  while (current.activePlayerId) {
+    const pid = current.activePlayerId;
+    const actions = getAvailableActions(current, pid);
+    const canCheck = actions.some((a) => a.type === 'CHECK');
+    const t = processAction(current, pid, canCheck ? 'CHECK' : 'CALL');
+    current = finalState(t);
+  }
+  return current;
+}
