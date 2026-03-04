@@ -20,6 +20,7 @@ export interface GameRow {
   max_players: number;
   starting_stack: number;
   spectator_visibility: string;
+  showdown_visibility: string;
   tournament_length_hours: number | null;
   round_length_minutes: number | null;
   antes_enabled: number;
@@ -85,6 +86,7 @@ export interface CreateGameParams {
   maxPlayers?: number;
   startingStack?: number;
   spectatorVisibility?: string;
+  showdownVisibility?: string;
   tournamentLengthHours?: number;
   roundLengthMinutes?: number;
   antesEnabled?: boolean;
@@ -97,13 +99,14 @@ export function createGame(params: CreateGameParams): GameRow {
   const maxPlayers = params.maxPlayers ?? 9;
   const startingStack = params.startingStack ?? 1000;
   const spectatorVisibility = params.spectatorVisibility ?? 'showdown';
+  const showdownVisibility = params.showdownVisibility ?? 'standard';
 
   db.prepare(
-    `INSERT INTO games (id, name, game_type, small_blind, big_blind, max_players, starting_stack, spectator_visibility, tournament_length_hours, round_length_minutes, antes_enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO games (id, name, game_type, small_blind, big_blind, max_players, starting_stack, spectator_visibility, showdown_visibility, tournament_length_hours, round_length_minutes, antes_enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id, params.name, gameType, params.smallBlind, params.bigBlind,
-    maxPlayers, startingStack, spectatorVisibility,
+    maxPlayers, startingStack, spectatorVisibility, showdownVisibility,
     params.tournamentLengthHours ?? null,
     params.roundLengthMinutes ?? null,
     params.antesEnabled ? 1 : 0
@@ -115,6 +118,13 @@ export function createGame(params: CreateGameParams): GameRow {
 export function updateGameSpectatorVisibility(gameId: string, visibility: string): boolean {
   const result = getDb()
     .prepare(`UPDATE games SET spectator_visibility = ? WHERE id = ?`)
+    .run(visibility, gameId);
+  return result.changes > 0;
+}
+
+export function updateGameShowdownVisibility(gameId: string, visibility: string): boolean {
+  const result = getDb()
+    .prepare(`UPDATE games SET showdown_visibility = ? WHERE id = ?`)
     .run(visibility, gameId);
   return result.changes > 0;
 }

@@ -39,6 +39,7 @@ import {
   getGamePlayerCount,
   updateGameStatus,
   updateGameSpectatorVisibility,
+  updateGameShowdownVisibility,
   saveHandHistory,
   saveGameSnapshot,
   deleteGameSnapshot,
@@ -61,6 +62,7 @@ interface ActiveGame {
   riggedDeck: string[] | null;
   previousHandState: EngineState | null; // Track previous hand for delayed spectator view
   spectatorVisibility: string; // Per-game spectator card visibility mode
+  showdownVisibility: string; // Per-game showdown card reveal mode
   recorder: ReplayRecorder | null; // Replay recording
   // Tournament-specific fields
   blindTimer: ReturnType<typeof setTimeout> | null;
@@ -135,6 +137,7 @@ export class GameManager {
       bigBlindAmount: row.big_blind,
       maxPlayers: row.max_players,
       startingStack: row.starting_stack,
+      showdownVisibility: (row.showdown_visibility as 'standard' | 'show-all') ?? 'standard',
     };
   }
 
@@ -159,6 +162,7 @@ export class GameManager {
       riggedDeck: null,
       previousHandState: null,
       spectatorVisibility: row.spectator_visibility ?? 'showdown',
+      showdownVisibility: row.showdown_visibility ?? 'standard',
       recorder: new ReplayRecorder(this.createGameConfig(row)),
       blindTimer: null,
       blindWarningTimers: [],
@@ -210,6 +214,16 @@ export class GameManager {
     const active = this.activeGames.get(gameId);
     if (active) active.spectatorVisibility = visibility;
     return updateGameSpectatorVisibility(gameId, visibility);
+  }
+
+  /** Update showdown card visibility mode for a game (persists to DB + engine state). */
+  setShowdownVisibility(gameId: string, visibility: string): boolean {
+    const active = this.activeGames.get(gameId);
+    if (active) {
+      active.showdownVisibility = visibility;
+      active.state.showdownVisibility = visibility as 'standard' | 'show-all';
+    }
+    return updateGameShowdownVisibility(gameId, visibility);
   }
 
   // ─── Game list ──────────────────────────────────────────────────────────────

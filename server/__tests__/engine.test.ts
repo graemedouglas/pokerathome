@@ -901,11 +901,11 @@ describe('Spectator card visibility', () => {
     expect(player2?.holeCards).toBeNull();
   });
 
-  test('player sees opponent cards at showdown', () => {
+  test('player sees opponent cards at showdown (show-all mode)', () => {
     let state = createTestState();
     // Fast-forward to showdown by folding all but one player, then having them check down
     // For simplicity, we'll just set the stage to SHOWDOWN
-    state = { ...state, stage: 'SHOWDOWN' };
+    state = { ...state, stage: 'SHOWDOWN', showdownVisibility: 'show-all' };
 
     const clientState = toClientGameState(state, 'player1');
     const player2 = clientState.players.find(p => p.id === 'player2');

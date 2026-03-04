@@ -209,7 +209,7 @@ export type PlayerTimeoutEvent = z.infer<typeof PlayerTimeoutEvent>;
 
 export const ShowdownResult = z.object({
   playerId: z.string().uuid(),
-  holeCards: z.array(Card).length(2),
+  holeCards: z.array(Card).length(2).nullable(),
   handRank: HandRank,
   handDescription: z.string(),
 });

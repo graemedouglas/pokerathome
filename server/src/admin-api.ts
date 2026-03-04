@@ -25,6 +25,7 @@ const CreateGameBody = z.object({
   maxPlayers: z.number().int().min(2).max(10).default(9),
   startingStack: z.number().int().min(1).default(1000),
   spectatorVisibility: z.enum(['showdown', 'delayed', 'immediate']).default('showdown'),
+  showdownVisibility: z.enum(['show-all', 'standard']).default('standard'),
   tournamentLengthHours: z.number().min(0.25).max(24).optional(),
   roundLengthMinutes: z.number().int().min(1).max(120).optional(),
   antesEnabled: z.boolean().default(false),
@@ -32,6 +33,10 @@ const CreateGameBody = z.object({
 
 const SetSpectatorVisibilityBody = z.object({
   spectatorVisibility: z.enum(['showdown', 'delayed', 'immediate']),
+});
+
+const SetShowdownVisibilityBody = z.object({
+  showdownVisibility: z.enum(['show-all', 'standard']),
 });
 
 export function registerAdminRoutes(
@@ -77,6 +82,7 @@ export function registerAdminRoutes(
       maxPlayers: body.data.maxPlayers,
       startingStack: isTournament ? 5000 : body.data.startingStack,
       spectatorVisibility: body.data.spectatorVisibility,
+      showdownVisibility: body.data.showdownVisibility,
       tournamentLengthHours: body.data.tournamentLengthHours,
       roundLengthMinutes: body.data.roundLengthMinutes,
       antesEnabled: body.data.antesEnabled,
@@ -185,6 +191,25 @@ export function registerAdminRoutes(
     return reply.send({ ok: true });
   });
 
+  // Update showdown card visibility for a game
+  app.patch<{ Params: { id: string } }>('/api/games/:id/showdown-visibility', async (request, reply) => {
+    const game = getGameById(request.params.id);
+    if (!game) return reply.status(404).send({ error: 'Game not found' });
+
+    const body = SetShowdownVisibilityBody.safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: body.error.issues.map((i: { message: string }) => i.message).join('; ') });
+    }
+
+    const ok = gameManager.setShowdownVisibility(request.params.id, body.data.showdownVisibility);
+    if (!ok) {
+      return reply.status(404).send({ error: 'Game not found' });
+    }
+
+    logger.info({ gameId: request.params.id, showdownVisibility: body.data.showdownVisibility }, 'Showdown visibility updated via admin API');
+    return reply.send({ ok: true });
+  });
+
   // Delete (cancel) a game
   app.delete<{ Params: { id: string } }>('/api/games/:id', async (request, reply) => {
     const deleted = deleteGame(request.params.id);
@@ -249,5 +274,95 @@ export function registerAdminRoutes(
     }
     const players = replayGameManager.getReplayPlayers(request.params.id);
     return reply.send(players);
+  });
+
+  // ─── Dev seed ──────────────────────────────────────────────────────────────
+
+  app.post('/api/seed', async (_request, reply) => {
+    const created: Array<{ id: string; name: string; bots: string[] }> = [];
+
+    const tables: Array<{
+      name: string;
+      gameType: 'cash' | 'tournament';
+      smallBlind: number;
+      bigBlind: number;
+      startingStack: number;
+      maxPlayers: number;
+      tournamentLengthHours?: number;
+      roundLengthMinutes?: number;
+      bots: Array<{ botType: 'calling-station' | 'tag-bot'; displayName: string }>;
+    }> = [
+      {
+        name: 'Cash - Empty',
+        gameType: 'cash',
+        smallBlind: 5,
+        bigBlind: 10,
+        startingStack: 1000,
+        maxPlayers: 6,
+        bots: [],
+      },
+      {
+        name: 'Cash - Bots',
+        gameType: 'cash',
+        smallBlind: 5,
+        bigBlind: 10,
+        startingStack: 1000,
+        maxPlayers: 6,
+        bots: [
+          { botType: 'calling-station', displayName: 'Calling Station' },
+          { botType: 'tag-bot', displayName: 'TAG Bot' },
+        ],
+      },
+      {
+        name: 'Tournament - Empty',
+        gameType: 'tournament',
+        smallBlind: 25,
+        bigBlind: 50,
+        startingStack: 5000,
+        maxPlayers: 6,
+        tournamentLengthHours: 1,
+        roundLengthMinutes: 3,
+        bots: [],
+      },
+      {
+        name: 'Tournament - Bots',
+        gameType: 'tournament',
+        smallBlind: 25,
+        bigBlind: 50,
+        startingStack: 5000,
+        maxPlayers: 6,
+        tournamentLengthHours: 1,
+        roundLengthMinutes: 3,
+        bots: [
+          { botType: 'calling-station', displayName: 'Calling Station' },
+          { botType: 'tag-bot', displayName: 'TAG Bot' },
+        ],
+      },
+    ];
+
+    for (const t of tables) {
+      const game = createGame({
+        name: t.name,
+        gameType: t.gameType,
+        smallBlind: t.smallBlind,
+        bigBlind: t.bigBlind,
+        startingStack: t.startingStack,
+        maxPlayers: t.maxPlayers,
+        tournamentLengthHours: t.tournamentLengthHours,
+        roundLengthMinutes: t.roundLengthMinutes,
+      });
+      gameManager.activateGame(game.id);
+
+      const botNames: string[] = [];
+      for (const bot of t.bots) {
+        const result = await gameManager.addBot(game.id, bot.botType, bot.displayName);
+        if (result.ok) botNames.push(bot.displayName);
+      }
+
+      created.push({ id: game.id, name: game.name, bots: botNames });
+      logger.info({ gameId: game.id, name: game.name, bots: botNames.length }, 'Seed: game created');
+    }
+
+    return reply.status(201).send({ games: created });
   });
 }

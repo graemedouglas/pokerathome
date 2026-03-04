@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS games (
   max_players INTEGER NOT NULL DEFAULT 9,
   starting_stack INTEGER NOT NULL DEFAULT 1000,
   spectator_visibility TEXT NOT NULL DEFAULT 'showdown',
+  showdown_visibility TEXT NOT NULL DEFAULT 'standard',
   tournament_length_hours REAL,
   round_length_minutes INTEGER,
   antes_enabled INTEGER NOT NULL DEFAULT 0,

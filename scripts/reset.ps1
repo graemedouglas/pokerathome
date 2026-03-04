@@ -2,12 +2,14 @@
 # Full reset: kill dev processes, remove database files, optionally restart.
 #
 # Usage:
-#   .\scripts\reset.ps1          # kill + clean
-#   .\scripts\reset.ps1 -Start   # kill + clean + restart servers + create game
+#   .\scripts\reset.ps1                       # kill + clean
+#   .\scripts\reset.ps1 -Start                # kill + clean + restart servers + seed tables
+#   .\scripts\reset.ps1 -Start -CleanReplays  # also delete all replay files
 #
 
 param(
-  [switch]$Start
+  [switch]$Start,
+  [switch]$CleanReplays
 )
 
 $ErrorActionPreference = "Continue"
@@ -46,6 +48,25 @@ $logsDir = Join-Path $DbDir "logs"
 if (Test-Path $logsDir) {
   Remove-Item $logsDir -Recurse -Force
   Write-Host "Removed logs/"
+}
+
+# ─── Remove replays (optional) ──────────────────────────────────────────────
+
+if ($CleanReplays) {
+  Write-Host ""
+  Write-Host "=== Cleaning replays ==="
+  $replaysDir = Join-Path $DbDir "replays"
+  if (Test-Path $replaysDir) {
+    $replayFiles = Get-ChildItem $replaysDir -Filter "*.replay.json" -ErrorAction SilentlyContinue
+    if ($replayFiles.Count -gt 0) {
+      $replayFiles | Remove-Item -Force
+      Write-Host "Removed $($replayFiles.Count) replay file(s)"
+    } else {
+      Write-Host "No replay files to remove"
+    }
+  } else {
+    Write-Host "No replays directory"
+  }
 }
 
 # ─── Optionally restart ─────────────────────────────────────────────────────────
@@ -101,23 +122,26 @@ if ($Start) {
     Write-Host "Warning: server did not become healthy in time"
   }
 
-  # Create a game
+  # Seed games + bots (retry a few times in case server is still warming up)
   Write-Host ""
-  Write-Host "=== Creating game ==="
-  try {
-    $body = @{
-      name = "Test Table"
-      smallBlind = 5
-      bigBlind = 10
-      maxPlayers = 6
-      startingStack = 1000
-    } | ConvertTo-Json
-
-    $game = Invoke-RestMethod -Uri "http://127.0.0.1:3000/api/games" `
-      -Method Post -ContentType "application/json" -Body $body
-    Write-Host "Game created: $($game.name) ($($game.id))"
-  } catch {
-    Write-Host "Warning: failed to create game"
+  Write-Host "=== Seeding tables ==="
+  $seeded = $false
+  for ($attempt = 1; $attempt -le 5; $attempt++) {
+    Start-Sleep -Seconds 2
+    try {
+      $seed = Invoke-RestMethod -Uri "http://127.0.0.1:3000/api/seed" -Method Post -ContentType "application/json" -Body "{}" -TimeoutSec 10
+      foreach ($g in $seed.games) {
+        $botInfo = if ($g.bots.Count -gt 0) { " (bots: $($g.bots -join ', '))" } else { "" }
+        Write-Host "  $($g.name)$botInfo"
+      }
+      $seeded = $true
+      break
+    } catch {
+      Write-Host "  Attempt $attempt failed: $_"
+    }
+  }
+  if (-not $seeded) {
+    Write-Host "Warning: could not seed tables after 5 attempts"
   }
 
   Write-Host ""

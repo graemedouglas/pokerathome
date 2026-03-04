@@ -87,6 +87,7 @@ interface Game {
   max_players: number;
   starting_stack: number;
   spectator_visibility: string;
+  showdown_visibility: string;
   tournament_length_hours: number | null;
   round_length_minutes: number | null;
   antes_enabled: number;
@@ -158,6 +159,18 @@ async function setSpectatorVisibility(gameId: string, visibility: string) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to update spectator mode');
+  }
+}
+
+async function setShowdownVisibility(gameId: string, visibility: string) {
+  const res = await apiFetch(`${API}/games/${gameId}/showdown-visibility`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ showdownVisibility: visibility }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update showdown mode');
   }
 }
 
@@ -254,6 +267,7 @@ function renderGames(games: Game[]) {
           <th>Players</th>
           <th>Status</th>
           <th>Spectator</th>
+          <th>Showdown</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -278,6 +292,17 @@ function renderGames(games: Game[]) {
                      </select>
                      <button class="secondary" onclick="window.__setSpec('${g.id}')">Set</button>`
                   : esc(specLabel(g.spectator_visibility ?? 'showdown'))
+              }
+            </td>
+            <td>
+              ${
+                g.status === 'waiting' || g.status === 'in_progress'
+                  ? `<select id="showdown-${g.id}" class="spec-select">
+                       <option value="standard"${(g.showdown_visibility ?? 'standard') === 'standard' ? ' selected' : ''}>Standard</option>
+                       <option value="show-all"${g.showdown_visibility === 'show-all' ? ' selected' : ''}>Show All</option>
+                     </select>
+                     <button class="secondary" onclick="window.__setShowdown('${g.id}')">Set</button>`
+                  : esc(g.showdown_visibility === 'show-all' ? 'Show All' : 'Standard')
               }
             </td>
             <td class="actions">
@@ -385,6 +410,7 @@ document.getElementById('create-form')!.addEventListener('submit', async (e) => 
       startingStack: 5000,
       maxPlayers: parseInt((form.elements.namedItem('tournamentMaxPlayers') as HTMLInputElement).value, 10),
       spectatorVisibility: (form.elements.namedItem('spectatorVisibility') as HTMLSelectElement).value,
+      showdownVisibility: (form.elements.namedItem('showdownVisibility') as HTMLSelectElement).value,
       tournamentLengthHours: parseFloat((form.elements.namedItem('tournamentLengthHours') as HTMLInputElement).value),
       roundLengthMinutes: parseInt((form.elements.namedItem('roundLengthMinutes') as HTMLInputElement).value, 10),
       antesEnabled: (form.elements.namedItem('antesEnabled') as HTMLInputElement).checked,
@@ -398,6 +424,7 @@ document.getElementById('create-form')!.addEventListener('submit', async (e) => 
       startingStack: parseInt((form.elements.namedItem('startingStack') as HTMLInputElement).value, 10),
       maxPlayers: parseInt((form.elements.namedItem('maxPlayers') as HTMLInputElement).value, 10),
       spectatorVisibility: (form.elements.namedItem('spectatorVisibility') as HTMLSelectElement).value,
+      showdownVisibility: (form.elements.namedItem('showdownVisibility') as HTMLSelectElement).value,
     };
   }
 
@@ -439,6 +466,18 @@ document.getElementById('create-form')!.addEventListener('submit', async (e) => 
   try {
     await setSpectatorVisibility(id, visibility);
     toast('Spectator mode updated');
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+};
+
+(window as any).__setShowdown = async (id: string) => {
+  const select = document.getElementById(`showdown-${id}`) as HTMLSelectElement;
+  const visibility = select?.value ?? 'standard';
+  try {
+    await setShowdownVisibility(id, visibility);
+    toast('Showdown mode updated');
     refresh();
   } catch (err: any) {
     toast(err.message, true);

@@ -67,6 +67,10 @@ export interface EngineState {
   maxPlayers: number;
   startingStack: number;
 
+  // Showdown visibility
+  showdownVisibility: 'standard' | 'show-all';
+  lastAggressorId: string | null;
+
   // Tournament fields
   blindSchedule: BlindLevel[];
   currentBlindLevel: number;
@@ -94,6 +98,7 @@ export interface GameConfig {
   startingStack: number;
   blindSchedule?: BlindLevel[];
   antesEnabled?: boolean;
+  showdownVisibility?: 'standard' | 'show-all';
 }
 
 export function createInitialState(config: GameConfig): EngineState {
@@ -119,6 +124,8 @@ export function createInitialState(config: GameConfig): EngineState {
     handInProgress: false,
     maxPlayers: config.maxPlayers,
     startingStack: config.startingStack,
+    showdownVisibility: config.showdownVisibility ?? 'standard',
+    lastAggressorId: null,
     blindSchedule: config.blindSchedule ?? [],
     currentBlindLevel: 0,
     antesEnabled: config.antesEnabled ?? false,
@@ -312,6 +319,7 @@ export function startHand(inputState: EngineState, deckOverride?: string[]): Tra
     actedThisRound: [],
     handEvents: [],
     handInProgress: true,
+    lastAggressorId: null,
     players: state.players.map((p) => ({
       ...p,
       bet: 0,
@@ -492,6 +500,7 @@ export function processAction(
       state.lastRaiseSize = betAmount;
       state.currentBet = newBet;
       state.actedThisRound = []; // Reset — everyone else must respond
+      state.lastAggressorId = playerId;
       if (willBeAllIn) state = markAllIn(state, playerId);
       break;
     }
@@ -504,6 +513,7 @@ export function processAction(
       state.lastRaiseSize = Math.max(raiseIncrement, state.lastRaiseSize);
       state.currentBet = newBet;
       state.actedThisRound = []; // Reset — everyone else must respond
+      state.lastAggressorId = playerId;
       if (willBeAllIn) state = markAllIn(state, playerId);
       break;
     }
@@ -522,6 +532,7 @@ export function processAction(
           state.actedThisRound = []; // Full raise — everyone can re-raise
         }
         // Short all-in (TDA Rule 47): don't reopen betting for already-acted players
+        state.lastAggressorId = playerId;
       }
       state = markAllIn(state, playerId);
       break;
@@ -619,6 +630,7 @@ function advanceStage(inputState: EngineState): Transition[] {
       state.pots = pots;
 
       if (!skipBetting) {
+        state.lastAggressorId = null; // Reset for new betting round
         const firstActor = getFirstToActPostFlop(state);
         state.activePlayerId = firstActor?.id ?? null;
         transitions.push({ state: cloneState(state), event });
@@ -640,6 +652,7 @@ function advanceStage(inputState: EngineState): Transition[] {
       state.pots = pots;
 
       if (!skipBetting) {
+        state.lastAggressorId = null; // Reset for new betting round
         const firstActor = getFirstToActPostFlop(state);
         state.activePlayerId = firstActor?.id ?? null;
         transitions.push({ state: cloneState(state), event });
@@ -661,6 +674,7 @@ function advanceStage(inputState: EngineState): Transition[] {
       state.pots = pots;
 
       if (!skipBetting) {
+        state.lastAggressorId = null; // Reset for new betting round
         const firstActor = getFirstToActPostFlop(state);
         state.activePlayerId = firstActor?.id ?? null;
         transitions.push({ state: cloneState(state), event });
@@ -696,12 +710,13 @@ function resolveShowdown(state: EngineState): Transition[] {
   const { pots } = calculatePots(state.players);
   const winners = distributePots(pots, evaluatedHands);
 
-  state.activePlayerId = null;
-  transitions.push({ state: cloneState(state), event: showdownEvent });
-
-  // HAND_END
+  // Add HAND_END to handEvents BEFORE cloning for SHOWDOWN transition
+  // so shouldRevealAtShowdown() can identify winners when filtering cards
   const handEndEvent: Event = { type: 'HAND_END', winners };
   state.handEvents.push(handEndEvent);
+
+  state.activePlayerId = null;
+  transitions.push({ state: cloneState(state), event: showdownEvent });
 
   // Apply winnings to stacks
   for (const w of winners) {
@@ -847,6 +862,26 @@ function getFirstToActPostFlop(state: EngineState): EnginePlayer | null {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * In "standard" showdown mode, determines if a player's cards should be revealed.
+ * Cards are shown for: the last aggressor on the final street, and all winners.
+ */
+function shouldRevealAtShowdown(player: EnginePlayer, state: EngineState): boolean {
+  if (state.showdownVisibility !== 'standard') return true;
+
+  // Last aggressor on the final betting street (the "called" player)
+  if (state.lastAggressorId === player.id) return true;
+
+  // Winner(s)
+  const handEndEvent = state.handEvents.find((e) => e.type === 'HAND_END');
+  if (handEndEvent && 'winners' in handEndEvent) {
+    const winners = handEndEvent.winners as Array<{ playerId: string }>;
+    return winners.some((w) => w.playerId === player.id);
+  }
+
+  return false;
+}
+
+/**
  * Determines which cards should be visible to a viewer based on their role and config.
  */
 function determineVisibleCards(
@@ -861,9 +896,10 @@ function determineVisibleCards(
     return player.holeCards;
   }
 
-  // Non-spectators see cards at showdown or when revealed
+  // Non-spectators see cards at showdown (filtered by showdown visibility mode)
   if (!isSpectator) {
-    return state.stage === 'SHOWDOWN' ? player.holeCards : null;
+    if (state.stage !== 'SHOWDOWN') return null;
+    return shouldRevealAtShowdown(player, state) ? player.holeCards : null;
   }
 
   // Spectator visibility based on per-game setting or global config fallback
@@ -874,18 +910,20 @@ function determineVisibleCards(
       return player.holeCards;
 
     case 'showdown':
-      return state.stage === 'SHOWDOWN' || !state.handInProgress
-        ? player.holeCards
-        : null;
+      if (state.stage === 'SHOWDOWN' || !state.handInProgress) {
+        return shouldRevealAtShowdown(player, state) ? player.holeCards : null;
+      }
+      return null;
 
     case 'delayed':
       // When GameManager has a previousHandState, it passes that as `state` so
       // player.holeCards are from the completed previous hand (all visible).
       // On the first hand (previousHandState === null), GameManager falls back to
       // active.state — so we must hide cards during play just like showdown mode.
-      return state.stage === 'SHOWDOWN' || !state.handInProgress
-        ? player.holeCards
-        : null;
+      if (state.stage === 'SHOWDOWN' || !state.handInProgress) {
+        return shouldRevealAtShowdown(player, state) ? player.holeCards : null;
+      }
+      return null;
 
     default:
       return null;
@@ -968,6 +1006,30 @@ export function toClientGameState(
   };
 }
 
+/**
+ * Filter event data per-viewer for showdown visibility.
+ * In "standard" mode, SHOWDOWN event results have holeCards nulled out
+ * for players whose cards should not be revealed.
+ */
+function filterEventForViewer(
+  event: Event,
+  state: EngineState,
+  viewerPlayerId: string,
+): Event {
+  if (event.type !== 'SHOWDOWN') return event;
+  if (state.showdownVisibility !== 'standard') return event;
+
+  return {
+    ...event,
+    results: event.results.map((r) => {
+      if (r.playerId === viewerPlayerId) return r;
+      const player = state.players.find((p) => p.id === r.playerId);
+      if (player && shouldRevealAtShowdown(player, state)) return r;
+      return { ...r, holeCards: null };
+    }),
+  };
+}
+
 /** Build a full gameState update payload for a specific viewer. */
 export function buildGameStatePayload(
   state: EngineState,
@@ -1001,7 +1063,7 @@ export function buildGameStatePayload(
 
   return {
     gameState,
-    event,
+    event: filterEventForViewer(event, state, viewerPlayerId),
     actionRequest,
     ...(handProbabilities ? { handProbabilities } : {}),
     ...(handWinEquity ? { handWinEquity } : {}),

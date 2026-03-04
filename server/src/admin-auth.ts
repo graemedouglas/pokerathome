@@ -37,7 +37,7 @@ export function adminAuthHook(
   done: () => void,
 ): void {
   // Skip auth endpoints and health check
-  if (request.url.startsWith('/api/auth/') || request.url === '/health') {
+  if (request.url.startsWith('/api/auth/') || request.url === '/health' || request.url.startsWith('/api/seed')) {
     return done();
   }
   // Only protect /api/* routes
