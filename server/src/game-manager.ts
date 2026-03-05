@@ -47,6 +47,8 @@ import {
   type GameRow,
 } from './db/queries.js';
 import { config } from './config.js';
+import { isPrivateMode } from './auth.js';
+import { createPlayerPassphrase } from './db/auth-queries.js';
 import { ReplayRecorder } from './replay/recorder.js';
 import { saveReplayFile } from './replay/storage.js';
 
@@ -1295,11 +1297,18 @@ export class GameManager {
     }
 
     const serverUrl = `ws://localhost:${config.PORT}/ws`;
+    let passphrase: string | undefined;
+    if (isPrivateMode()) {
+      const pp = createPlayerPassphrase(displayName);
+      passphrase = pp.passphrase;
+    }
+
     const bot = new bots.BotClient({
       serverUrl,
       gameId,
       strategy: createStrategy(),
       displayName,
+      passphrase,
     });
 
     try {

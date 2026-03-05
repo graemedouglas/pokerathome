@@ -280,6 +280,43 @@ describe('Add bot via admin API', () => {
   }, 15000)
 })
 
+describe('Add bot in private mode', () => {
+  test('bot connects successfully when server is in private mode', async () => {
+    // Enable private mode + set a server passphrase
+    const settingsRes = await authFetch(`${SERVER_URL}/api/auth/server-settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ privateMode: true, serverPassphrase: 'secret123' }),
+    })
+    expect(settingsRes.status).toBe(200)
+
+    const gameId = await createGame()
+
+    // Add a bot — should succeed even though private mode is on
+    const res = await authFetch(`${SERVER_URL}/api/games/${gameId}/add-bot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ botType: 'calling-station' }),
+    })
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.ok).toBe(true)
+
+    await sleep(1000)
+
+    // Verify the bot joined the game
+    const game = await getGame(gameId)
+    expect(game.players.length).toBe(1)
+
+    // Disable private mode for subsequent tests
+    await authFetch(`${SERVER_URL}/api/auth/server-settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ privateMode: false, serverPassphrase: null }),
+    })
+  })
+})
+
 describe('Tournament bot game', () => {
   test('two bots play a tournament game after admin start', async () => {
     // Create a tournament game
