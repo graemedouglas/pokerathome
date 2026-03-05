@@ -10,6 +10,12 @@ export interface BotClientOptions {
   /** Timeout in ms for start() to complete (connect + identify + join + ready). Default 10000. */
   startTimeoutMs?: number
   logger?: Pick<Console, 'info' | 'warn' | 'error'>
+  /** Server or player passphrase for auth */
+  passphrase?: string
+  /** Per-table invite code (overrides gameId if server returns autoJoinGameId) */
+  inviteCode?: string
+  /** Saved auth token from a previous run */
+  authToken?: string
 }
 
 export class BotClient {
@@ -49,10 +55,16 @@ export class BotClient {
 
       this.ws.on('open', () => {
         this.log.info('Connected, identifying...')
-        this.send({
-          action: 'identify',
-          payload: { displayName: this.options.displayName },
-        })
+        const identifyPayload: Record<string, unknown> = {
+          displayName: this.options.displayName,
+        }
+        if (this.options.authToken) identifyPayload.authToken = this.options.authToken
+        if (this.options.passphrase) {
+          identifyPayload.serverPassphrase = this.options.passphrase
+          identifyPayload.playerPassphrase = this.options.passphrase
+        }
+        if (this.options.inviteCode) identifyPayload.inviteCode = this.options.inviteCode
+        this.send({ action: 'identify', payload: identifyPayload })
       })
 
       this.ws.on('message', (data) => {
@@ -140,6 +152,9 @@ export class BotClient {
       case 'gameOver':
         this.handleGameOver()
         break
+      case 'authRequired':
+        this.handleAuthRequired(msg.payload as { methods: string[]; message: string })
+        break
       case 'error':
         this.handleError(msg.payload as { code?: string; message?: string })
         break
@@ -154,11 +169,20 @@ export class BotClient {
   private handleIdentified(payload: {
     playerId: string
     reconnectToken: string
+    authToken?: string
+    autoJoinGameId?: string
     pendingGame?: { gameId: string; gameName: string }
   }): void {
     this.playerId = payload.playerId
     this.reconnectToken = payload.reconnectToken
     this.log.info(`Identified as ${this.playerId}`)
+
+    if (payload.authToken) {
+      this.log.info(`Auth token issued: ${payload.authToken}`)
+    }
+
+    // Determine which game to join — invite code auto-route takes priority
+    const targetGameId = payload.autoJoinGameId ?? this.options.gameId
 
     if (payload.pendingGame) {
       // Server thinks we're already in a game (stale session) — leave first
@@ -168,7 +192,7 @@ export class BotClient {
       setTimeout(() => {
         this.send({
           action: 'joinGame',
-          payload: { gameId: this.options.gameId },
+          payload: { gameId: targetGameId },
         })
       }, 100)
       return
@@ -176,8 +200,14 @@ export class BotClient {
 
     this.send({
       action: 'joinGame',
-      payload: { gameId: this.options.gameId },
+      payload: { gameId: targetGameId },
     })
+  }
+
+  private handleAuthRequired(payload: { methods: string[]; message: string }): void {
+    this.log.error(`Authentication required: ${payload.message}`)
+    this.log.error(`Available methods: ${payload.methods.join(', ')}`)
+    this.joinError = payload.message
   }
 
   private handleGameJoined(): void {

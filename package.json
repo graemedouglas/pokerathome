@@ -10,6 +10,7 @@
     "lint": "pnpm -r lint",
     "test": "pnpm --filter @pokerathome/server test",
     "test:bots": "pnpm --filter @pokerathome/bots test",
+    "test:all": "pnpm -r --filter='!@pokerathome/e2e' run test",
     "test:e2e": "pnpm --filter @pokerathome/e2e test:unit",
     "e2e": "pnpm --filter @pokerathome/e2e test",
     "set-admin-password": "pnpm --filter @pokerathome/server set-admin-password",

@@ -4,6 +4,7 @@ export type ServerMessageHandler = (msg: ServerMessage) => void
 export type DisconnectHandler = (reason: string) => void
 
 const RECONNECT_TOKEN_KEY = 'pokerathome_reconnectToken'
+const AUTH_TOKEN_KEY = 'pokerathome_authToken'
 const MAX_RECONNECT_ATTEMPTS = 5
 const BASE_RECONNECT_DELAY = 1000
 
@@ -119,5 +120,17 @@ export class WsClient {
 
   static clearReconnectToken(): void {
     localStorage.removeItem(RECONNECT_TOKEN_KEY)
+  }
+
+  static getStoredAuthToken(): string | null {
+    return localStorage.getItem(AUTH_TOKEN_KEY)
+  }
+
+  static storeAuthToken(token: string): void {
+    localStorage.setItem(AUTH_TOKEN_KEY, token)
+  }
+
+  static clearAuthToken(): void {
+    localStorage.removeItem(AUTH_TOKEN_KEY)
   }
 }

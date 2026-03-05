@@ -30,6 +30,7 @@ export const ErrorCode = z.enum([
   'ALREADY_IN_GAME',
   'NOT_IDENTIFIED',
   'INVALID_MESSAGE',
+  'AUTH_REQUIRED',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
@@ -370,6 +371,10 @@ export type ReplayCardVisibilityPayload = z.infer<typeof ReplayCardVisibilityPay
 export const IdentifyPayload = z.object({
   displayName: z.string().min(1).max(32),
   reconnectToken: z.string().optional(),
+  authToken: z.string().optional(),
+  serverPassphrase: z.string().optional(),
+  playerPassphrase: z.string().optional(),
+  inviteCode: z.string().optional(),
 });
 export type IdentifyPayload = z.infer<typeof IdentifyPayload>;
 
@@ -415,6 +420,8 @@ export type GameStateUpdatePayload = z.infer<typeof GameStateUpdatePayload>;
 export const IdentifiedPayload = z.object({
   playerId: z.string().uuid(),
   reconnectToken: z.string(),
+  authToken: z.string().optional(),
+  autoJoinGameId: z.string().uuid().optional(),
   currentGame: GameStateUpdatePayload.optional(),
   pendingGame: z.object({
     gameId: z.string().uuid(),
@@ -674,6 +681,20 @@ export const RejoinedGameServerMessage = z.object({
   payload: RejoinedGamePayload,
 });
 
+export const AuthMethod = z.enum(['server_passphrase', 'player_passphrase', 'invite_code']);
+export type AuthMethod = z.infer<typeof AuthMethod>;
+
+export const AuthRequiredPayload = z.object({
+  methods: z.array(AuthMethod),
+  message: z.string(),
+});
+export type AuthRequiredPayload = z.infer<typeof AuthRequiredPayload>;
+
+export const AuthRequiredServerMessage = z.object({
+  action: z.literal('authRequired'),
+  payload: AuthRequiredPayload,
+});
+
 export const LobbyUpdateServerMessage = z.object({
   action: z.literal('lobbyUpdate'),
   payload: z.object({
@@ -701,6 +722,7 @@ export const ServerMessage = z.discriminatedUnion('action', [
   LobbyUpdateServerMessage,
   AlreadyInGameServerMessage,
   RejoinedGameServerMessage,
+  AuthRequiredServerMessage,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 

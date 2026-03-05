@@ -235,6 +235,160 @@ async function uploadReplayFile(data: unknown): Promise<void> {
   }
 }
 
+// ─── Auth management API calls ──────────────────────────────────────────────────
+
+interface AuthSettings {
+  privateMode: boolean;
+  serverPassphrase: string | null;
+}
+
+interface PlayerPassphrase {
+  id: string;
+  passphrase: string;
+  label: string | null;
+  used_by_player_id: string | null;
+  used_at: string | null;
+  revoked: number;
+  created_at: string;
+}
+
+interface InviteCode {
+  id: string;
+  code: string;
+  game_id: string;
+  label: string | null;
+  used_by_player_id: string | null;
+  used_at: string | null;
+  revoked: number;
+  created_at: string;
+}
+
+async function fetchAuthSettings(): Promise<AuthSettings> {
+  const res = await apiFetch(`${API}/auth/server-settings`);
+  if (!res.ok) throw new Error('Failed to fetch auth settings');
+  return res.json();
+}
+
+async function updateAuthSettings(data: Partial<AuthSettings>) {
+  const res = await apiFetch(`${API}/auth/server-settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update auth settings');
+  return res.json();
+}
+
+async function fetchPassphrases(): Promise<PlayerPassphrase[]> {
+  const res = await apiFetch(`${API}/auth/passphrases`);
+  if (!res.ok) throw new Error('Failed to fetch passphrases');
+  return res.json();
+}
+
+async function generatePassphrase(label?: string): Promise<PlayerPassphrase> {
+  const res = await apiFetch(`${API}/auth/passphrases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label }),
+  });
+  if (!res.ok) throw new Error('Failed to generate passphrase');
+  return res.json();
+}
+
+async function revokePassphrase(id: string) {
+  const res = await apiFetch(`${API}/auth/passphrases/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to revoke passphrase');
+}
+
+async function fetchInviteCodes(): Promise<InviteCode[]> {
+  const res = await apiFetch(`${API}/auth/invite-codes`);
+  if (!res.ok) throw new Error('Failed to fetch invite codes');
+  return res.json();
+}
+
+async function generateInviteCode(gameId: string, label?: string): Promise<InviteCode> {
+  const res = await apiFetch(`${API}/auth/invite-codes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gameId, label }),
+  });
+  if (!res.ok) throw new Error('Failed to generate invite code');
+  return res.json();
+}
+
+async function revokeInviteCodeApi(id: string) {
+  const res = await apiFetch(`${API}/auth/invite-codes/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to revoke invite code');
+}
+
+async function revokeAllTokens() {
+  const res = await apiFetch(`${API}/auth/tokens`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to revoke all tokens');
+}
+
+// ─── Auth management render ─────────────────────────────────────────────────────
+
+function renderAuthSettings(settings: AuthSettings) {
+  const privateModeEl = document.getElementById('private-mode') as HTMLInputElement;
+  const passphraseEl = document.getElementById('server-passphrase') as HTMLInputElement;
+  privateModeEl.checked = settings.privateMode;
+  passphraseEl.value = settings.serverPassphrase ?? '';
+}
+
+function renderPassphrases(passphrases: PlayerPassphrase[]) {
+  const container = document.getElementById('passphrases-container')!;
+  if (passphrases.length === 0) {
+    container.innerHTML = '<em style="color:#666">No passphrases generated yet.</em>';
+    return;
+  }
+  container.innerHTML = `<table><thead><tr>
+    <th>Label</th><th>Passphrase</th><th>Status</th><th>Actions</th>
+  </tr></thead><tbody>${passphrases.map(p => {
+    const status = p.revoked ? '<span style="color:#dc2626">Revoked</span>'
+      : p.used_by_player_id ? `<span style="color:#22c55e">Used</span>`
+      : '<span style="color:#f59e0b">Unused</span>';
+    const canRevoke = !p.revoked && !p.used_by_player_id;
+    return `<tr>
+      <td>${esc(p.label ?? '-')}</td>
+      <td><code>${esc(p.passphrase)}</code></td>
+      <td>${status}</td>
+      <td>${canRevoke ? `<button class="danger" onclick="window.__revokePassphrase('${p.id}')">Revoke</button>` : ''}</td>
+    </tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+function renderInviteCodes(codes: InviteCode[], games: Game[]) {
+  const container = document.getElementById('invite-codes-container')!;
+  if (codes.length === 0) {
+    container.innerHTML = '<em style="color:#666">No invite codes generated yet.</em>';
+    return;
+  }
+  const gameMap = new Map(games.map(g => [g.id, g.name]));
+  container.innerHTML = `<table><thead><tr>
+    <th>Game</th><th>Label</th><th>Code</th><th>Status</th><th>Actions</th>
+  </tr></thead><tbody>${codes.map(c => {
+    const status = c.revoked ? '<span style="color:#dc2626">Revoked</span>'
+      : c.used_by_player_id ? `<span style="color:#22c55e">Used</span>`
+      : '<span style="color:#f59e0b">Unused</span>';
+    const canRevoke = !c.revoked && !c.used_by_player_id;
+    return `<tr>
+      <td>${esc(gameMap.get(c.game_id) ?? c.game_id.slice(0, 8))}</td>
+      <td>${esc(c.label ?? '-')}</td>
+      <td><code>${esc(c.code)}</code></td>
+      <td>${status}</td>
+      <td>${canRevoke ? `<button class="danger" onclick="window.__revokeInviteCode('${c.id}')">Revoke</button>` : ''}</td>
+    </tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+function updateGameSelect(games: Game[]) {
+  const select = document.getElementById('ic-game-select') as HTMLSelectElement;
+  const activeGames = games.filter(g => g.status === 'waiting' || g.status === 'in_progress');
+  select.innerHTML = activeGames.length === 0
+    ? '<option value="">No active games</option>'
+    : activeGames.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+}
+
 // ─── Render ─────────────────────────────────────────────────────────────────────
 
 function renderGames(games: Game[]) {
@@ -379,9 +533,19 @@ function renderReplays(replays: ReplayInfo[]) {
 
 async function refresh() {
   try {
-    const [games, replays] = await Promise.all([fetchGames(), fetchReplays()]);
+    const [games, replays, authSettings, passphrases, inviteCodes] = await Promise.all([
+      fetchGames(),
+      fetchReplays(),
+      fetchAuthSettings(),
+      fetchPassphrases(),
+      fetchInviteCodes(),
+    ]);
     renderGames(games);
     renderReplays(replays);
+    renderAuthSettings(authSettings);
+    renderPassphrases(passphrases);
+    renderInviteCodes(inviteCodes, games);
+    updateGameSelect(games);
   } catch (err) {
     toast('Failed to load data', true);
   }
@@ -541,6 +705,106 @@ document.getElementById('replay-upload')?.addEventListener('change', async (e) =
     toast(err.message || 'Failed to upload replay', true);
   }
 });
+
+// ─── Auth management event handlers ─────────────────────────────────────────────
+
+document.getElementById('private-mode')!.addEventListener('change', async (e) => {
+  const checked = (e.target as HTMLInputElement).checked;
+  try {
+    await updateAuthSettings({ privateMode: checked });
+    toast(checked ? 'Private mode enabled' : 'Private mode disabled');
+  } catch (err: any) {
+    toast(err.message, true);
+    refresh();
+  }
+});
+
+document.getElementById('set-passphrase-btn')!.addEventListener('click', async () => {
+  const input = document.getElementById('server-passphrase') as HTMLInputElement;
+  const value = input.value.trim();
+  if (!value) {
+    toast('Enter a passphrase first', true);
+    return;
+  }
+  try {
+    await updateAuthSettings({ serverPassphrase: value });
+    toast('Server passphrase set');
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+});
+
+document.getElementById('clear-passphrase-btn')!.addEventListener('click', async () => {
+  try {
+    await updateAuthSettings({ serverPassphrase: null });
+    toast('Server passphrase cleared');
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+});
+
+document.getElementById('gen-pp-btn')!.addEventListener('click', async () => {
+  const labelInput = document.getElementById('pp-label') as HTMLInputElement;
+  const label = labelInput.value.trim() || undefined;
+  try {
+    const pp = await generatePassphrase(label);
+    toast(`Passphrase generated: ${pp.passphrase}`);
+    labelInput.value = '';
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+});
+
+document.getElementById('gen-ic-btn')!.addEventListener('click', async () => {
+  const gameSelect = document.getElementById('ic-game-select') as HTMLSelectElement;
+  const labelInput = document.getElementById('ic-label') as HTMLInputElement;
+  const gameId = gameSelect.value;
+  if (!gameId) {
+    toast('Select a game first', true);
+    return;
+  }
+  const label = labelInput.value.trim() || undefined;
+  try {
+    const ic = await generateInviteCode(gameId, label);
+    toast(`Invite code generated: ${ic.code}`);
+    labelInput.value = '';
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+});
+
+document.getElementById('revoke-all-btn')!.addEventListener('click', async () => {
+  if (!confirm('Are you sure? This will force ALL players to re-authenticate.')) return;
+  try {
+    await revokeAllTokens();
+    toast('All auth sessions revoked');
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+});
+
+(window as any).__revokePassphrase = async (id: string) => {
+  try {
+    await revokePassphrase(id);
+    toast('Passphrase revoked');
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+};
+
+(window as any).__revokeInviteCode = async (id: string) => {
+  try {
+    await revokeInviteCodeApi(id);
+    toast('Invite code revoked');
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+};
 
 // ─── Init: check auth state ─────────────────────────────────────────────────────
 

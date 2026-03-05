@@ -36,8 +36,9 @@ export function adminAuthHook(
   reply: FastifyReply,
   done: () => void,
 ): void {
-  // Skip auth endpoints and health check
-  if (request.url.startsWith('/api/auth/') || request.url === '/health' || request.url.startsWith('/api/seed')) {
+  // Skip public auth endpoints and health check
+  const publicPaths = ['/api/auth/login', '/api/auth/logout', '/api/auth/check'];
+  if (publicPaths.some(p => request.url.startsWith(p)) || request.url === '/health' || request.url.startsWith('/api/seed')) {
     return done();
   }
   // Only protect /api/* routes

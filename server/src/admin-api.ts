@@ -7,6 +7,22 @@ import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
 import { ReplayFile } from '@pokerathome/schema';
 import { createGame, getGameById, listGames, deleteGame, getGamePlayers, getGamePlayerCount } from './db/queries.js';
+import {
+  listPlayerPassphrases,
+  createPlayerPassphrase,
+  revokePlayerPassphrase,
+  listInviteCodes,
+  createInviteCode,
+  revokeInviteCode,
+  deleteAuthTokensByPlayer,
+  deleteAllAuthTokens,
+} from './db/auth-queries.js';
+import {
+  isPrivateMode,
+  setPrivateMode,
+  getServerPassphrase,
+  setServerPassphrase,
+} from './auth.js';
 import type { GameManager } from './game-manager.js';
 import type { SessionManager } from './ws/session.js';
 import type { ReplayGameManager } from './replay/index.js';
@@ -367,5 +383,107 @@ export function registerAdminRoutes(
     }
 
     return reply.status(201).send({ games: created });
+  });
+
+  // ─── Auth management routes ────────────────────────────────────────────────
+
+  // Get server access settings
+  app.get('/api/auth/server-settings', async (_request, reply) => {
+    return reply.send({
+      privateMode: isPrivateMode(),
+      serverPassphrase: getServerPassphrase(),
+    });
+  });
+
+  // Update server access settings
+  app.put('/api/auth/server-settings', async (request, reply) => {
+    const body = z.object({
+      privateMode: z.boolean().optional(),
+      serverPassphrase: z.string().nullable().optional(),
+    }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: body.error.issues.map((i: { message: string }) => i.message).join('; ') });
+    }
+    if (body.data.privateMode !== undefined) {
+      setPrivateMode(body.data.privateMode);
+    }
+    if (body.data.serverPassphrase !== undefined) {
+      setServerPassphrase(body.data.serverPassphrase);
+    }
+    logger.info({ privateMode: body.data.privateMode, hasPassphrase: !!body.data.serverPassphrase }, 'Server access settings updated');
+    return reply.send({
+      privateMode: isPrivateMode(),
+      serverPassphrase: getServerPassphrase(),
+    });
+  });
+
+  // List player passphrases
+  app.get('/api/auth/passphrases', async (_request, reply) => {
+    return reply.send(listPlayerPassphrases());
+  });
+
+  // Generate a new player passphrase
+  app.post('/api/auth/passphrases', async (request, reply) => {
+    const body = z.object({
+      label: z.string().max(64).optional(),
+    }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: body.error.issues.map((i: { message: string }) => i.message).join('; ') });
+    }
+    const row = createPlayerPassphrase(body.data?.label);
+    logger.info({ id: row.id, label: row.label }, 'Player passphrase generated');
+    return reply.status(201).send(row);
+  });
+
+  // Revoke a player passphrase
+  app.delete<{ Params: { id: string } }>('/api/auth/passphrases/:id', async (request, reply) => {
+    revokePlayerPassphrase(request.params.id);
+    logger.info({ id: request.params.id }, 'Player passphrase revoked');
+    return reply.send({ ok: true });
+  });
+
+  // List invite codes (optional ?gameId= filter)
+  app.get('/api/auth/invite-codes', async (request, reply) => {
+    const { gameId } = request.query as { gameId?: string };
+    return reply.send(listInviteCodes(gameId));
+  });
+
+  // Generate an invite code for a game
+  app.post('/api/auth/invite-codes', async (request, reply) => {
+    const body = z.object({
+      gameId: z.string().uuid(),
+      label: z.string().max(64).optional(),
+    }).safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: body.error.issues.map((i: { message: string }) => i.message).join('; ') });
+    }
+    const game = getGameById(body.data.gameId);
+    if (!game) {
+      return reply.status(404).send({ error: 'Game not found' });
+    }
+    const row = createInviteCode(body.data.gameId, body.data.label);
+    logger.info({ id: row.id, gameId: body.data.gameId, label: row.label }, 'Invite code generated');
+    return reply.status(201).send(row);
+  });
+
+  // Revoke an invite code
+  app.delete<{ Params: { id: string } }>('/api/auth/invite-codes/:id', async (request, reply) => {
+    revokeInviteCode(request.params.id);
+    logger.info({ id: request.params.id }, 'Invite code revoked');
+    return reply.send({ ok: true });
+  });
+
+  // Revoke all auth tokens (force everyone to re-auth)
+  app.delete('/api/auth/tokens', async (_request, reply) => {
+    deleteAllAuthTokens();
+    logger.info('All auth tokens revoked');
+    return reply.send({ ok: true });
+  });
+
+  // Revoke auth tokens for a specific player
+  app.delete<{ Params: { playerId: string } }>('/api/auth/tokens/:playerId', async (request, reply) => {
+    deleteAuthTokensByPlayer(request.params.playerId);
+    logger.info({ playerId: request.params.playerId }, 'Player auth tokens revoked');
+    return reply.send({ ok: true });
   });
 }

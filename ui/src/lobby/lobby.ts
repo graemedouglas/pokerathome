@@ -94,6 +94,63 @@ export class Lobby {
 
       const payload: Record<string, unknown> = { displayName: name }
       if (storedToken) payload.reconnectToken = storedToken
+      const authToken = WsClient.getStoredAuthToken()
+      if (authToken) payload.authToken = authToken
+      this.ws.send('identify', payload)
+    })
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') btn.click()
+    })
+
+    container.append(title, subtitle, input, btn, error)
+    this.setContent(container)
+
+    setTimeout(() => input.focus(), 100)
+  }
+
+  private showAuthScreen(methods: string[], message: string): void {
+    this.currentScreen = 'connect'
+    const container = el('div', 'lobby-card')
+
+    const title = el('h1', 'lobby-title')
+    title.textContent = 'POKER AT HOME'
+
+    const subtitle = el('p', 'lobby-subtitle')
+    subtitle.textContent = message
+
+    const input = document.createElement('input') as HTMLInputElement
+    input.type = 'text'
+    input.placeholder = methods.includes('invite_code') ? 'Passphrase or invite code' : 'Passphrase'
+    input.maxLength = 32
+    input.className = 'lobby-input'
+
+    const btn = el('button', 'lobby-btn lobby-btn-primary')
+    btn.textContent = 'Submit'
+
+    const error = el('p', 'lobby-error')
+    error.style.display = 'none'
+
+    btn.addEventListener('click', () => {
+      const value = input.value.trim()
+      if (!value) {
+        error.textContent = 'Please enter a passphrase or invite code'
+        error.style.display = 'block'
+        return
+      }
+      btn.textContent = 'Authenticating...'
+      btn.setAttribute('disabled', 'true')
+
+      const name = localStorage.getItem('pokerathome_displayName') ?? ''
+      const storedToken = WsClient.getStoredReconnectToken()
+      const payload: Record<string, unknown> = { displayName: name }
+      if (storedToken) payload.reconnectToken = storedToken
+
+      // Send the value as all credential types — server figures out which one matches
+      payload.serverPassphrase = value
+      payload.playerPassphrase = value
+      payload.inviteCode = value
+
       this.ws.send('identify', payload)
     })
 
@@ -320,12 +377,19 @@ export class Lobby {
         const payload = msg.payload as {
           playerId: string
           reconnectToken: string
+          authToken?: string
+          autoJoinGameId?: string
           currentGame?: GameStateUpdatePayload
           pendingGame?: { gameId: string; gameName: string }
         }
         this.playerId = payload.playerId
         this.reconnectToken = payload.reconnectToken
         WsClient.storeReconnectToken(payload.reconnectToken)
+
+        // Store auth token for future sessions
+        if (payload.authToken) {
+          WsClient.storeAuthToken(payload.authToken)
+        }
 
         if (payload.pendingGame) {
           // Player was in an active game — show choice to rejoin or leave
@@ -341,7 +405,20 @@ export class Lobby {
           return
         }
 
+        // Auto-join from invite code
+        if (payload.autoJoinGameId) {
+          this.currentGameId = payload.autoJoinGameId
+          this.ws.send('joinGame', { gameId: payload.autoJoinGameId })
+          return
+        }
+
         this.ws.send('listGames', {})
+        break
+      }
+
+      case 'authRequired': {
+        const payload = msg.payload as { methods: string[]; message: string }
+        this.showAuthScreen(payload.methods, payload.message)
         break
       }
 

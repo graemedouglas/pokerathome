@@ -122,6 +122,49 @@
   </div>
 
   <div class="card">
+    <h2>Server Access</h2>
+    <div style="display:flex; flex-direction:column; gap:0.75rem;">
+      <label style="flex-direction:row; align-items:center; gap:0.5rem;">
+        <input type="checkbox" id="private-mode" />
+        Private Mode (require authentication to connect)
+      </label>
+      <div class="row" style="align-items:flex-end;">
+        <label style="flex:1;">Server Passphrase
+          <input type="text" id="server-passphrase" placeholder="None set" />
+        </label>
+        <button class="secondary" id="set-passphrase-btn" style="height:fit-content;">Set</button>
+        <button class="danger" id="clear-passphrase-btn" style="height:fit-content;">Clear</button>
+      </div>
+    </div>
+
+    <h3 style="margin-top:1rem; font-size:0.95rem; color:#ccc;">Player Passphrases</h3>
+    <div style="display:flex; gap:0.5rem; margin:0.5rem 0; align-items:flex-end;">
+      <label style="flex:1;">Label (optional)
+        <input type="text" id="pp-label" placeholder="e.g. Alice" maxlength="64" />
+      </label>
+      <button class="secondary" id="gen-pp-btn" style="height:fit-content;">Generate</button>
+    </div>
+    <div id="passphrases-container" style="font-size:0.85rem; color:#666;">Loading...</div>
+
+    <h3 style="margin-top:1rem; font-size:0.95rem; color:#ccc;">Invite Codes</h3>
+    <div style="display:flex; gap:0.5rem; margin:0.5rem 0; align-items:flex-end;">
+      <label style="flex:1;">Game
+        <select id="ic-game-select" style="width:100%;"></select>
+      </label>
+      <label>Label (optional)
+        <input type="text" id="ic-label" placeholder="e.g. Bob" maxlength="64" style="width:100px;" />
+      </label>
+      <button class="secondary" id="gen-ic-btn" style="height:fit-content;">Generate</button>
+    </div>
+    <div id="invite-codes-container" style="font-size:0.85rem; color:#666;">Loading...</div>
+
+    <div style="margin-top:1rem; padding-top:0.75rem; border-top:1px solid #2a2a2a;">
+      <button class="danger" id="revoke-all-btn">Revoke All Sessions</button>
+      <span style="font-size:0.8rem; color:#666; margin-left:0.5rem;">Forces everyone to re-authenticate</span>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Create Game</h2>
     <form id="create-form">
       <label>Name <input type="text" name="name" value="Quick Game" required /></label>

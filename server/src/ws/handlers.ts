@@ -23,6 +23,7 @@ import {
   rotateReconnectToken,
   getPlayerGame,
 } from '../db/queries.js';
+import { validateAuth } from '../auth.js';
 
 // ─── identify ───────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,29 @@ export function handleIdentify(
     playerId = player.id;
     reconnectToken = player.reconnect_token;
     logger.info({ playerId, displayName: payload.displayName }, 'New player identified');
+  }
+
+  // Validate auth before registering the session
+  const authResult = validateAuth({
+    authToken: payload.authToken,
+    serverPassphrase: payload.serverPassphrase,
+    playerPassphrase: payload.playerPassphrase,
+    inviteCode: payload.inviteCode,
+    playerId,
+  });
+
+  if (!authResult.authenticated) {
+    logger.info({ playerId }, 'Auth rejected — sending authRequired');
+    if (socket.readyState === 1) {
+      socket.send(JSON.stringify({
+        action: 'authRequired',
+        payload: {
+          methods: authResult.availableMethods ?? [],
+          message: authResult.error ?? 'Authentication required.',
+        },
+      }));
+    }
+    return;
   }
 
   sessions.register(playerId, payload.displayName, socket);
@@ -91,6 +115,8 @@ export function handleIdentify(
     payload: {
       playerId,
       reconnectToken,
+      ...(authResult.authToken ? { authToken: authResult.authToken } : {}),
+      ...(authResult.autoJoinGameId ? { autoJoinGameId: authResult.autoJoinGameId } : {}),
       ...(pendingGame ? { pendingGame } : {}),
     },
   });

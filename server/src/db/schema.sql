@@ -51,3 +51,42 @@ CREATE TABLE IF NOT EXISTS game_snapshots (
   state_json TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Server-wide key-value settings (privacy mode, server passphrase, etc.)
+CREATE TABLE IF NOT EXISTS server_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Durable auth tokens issued after successful authentication
+CREATE TABLE IF NOT EXISTS auth_tokens (
+  token TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  auth_method TEXT NOT NULL,
+  auth_detail TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Per-player one-time passphrases (admin-generated)
+CREATE TABLE IF NOT EXISTS player_passphrases (
+  id TEXT PRIMARY KEY,
+  passphrase TEXT UNIQUE NOT NULL,
+  label TEXT,
+  used_by_player_id TEXT REFERENCES players(id),
+  used_at TEXT,
+  revoked INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Per-table invite codes (admin-generated, tied to a game)
+CREATE TABLE IF NOT EXISTS invite_codes (
+  id TEXT PRIMARY KEY,
+  code TEXT UNIQUE NOT NULL,
+  game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  label TEXT,
+  used_by_player_id TEXT REFERENCES players(id),
+  used_at TEXT,
+  revoked INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

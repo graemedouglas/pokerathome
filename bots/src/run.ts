@@ -10,12 +10,26 @@ import { BotClient } from './client.js'
 import { strategyRegistry } from './strategies/index.js'
 
 function usage(): never {
-  console.error(`Usage: tsx src/run.ts --server <url> --game <gameId> --type <botType> [--name <displayName>]`)
+  console.error(`Usage: tsx src/run.ts --server <url> --game <gameId> --type <botType> [options]`)
+  console.error(`  --name <displayName>     Bot display name`)
+  console.error(`  --passphrase <value>     Server or player passphrase`)
+  console.error(`  --invite-code <value>    Per-table invite code (makes --game optional)`)
+  console.error(`  --auth-token <value>     Saved auth token from previous run`)
   console.error(`  Bot types: ${Object.keys(strategyRegistry).join(', ')}`)
   process.exit(1)
 }
 
-function parseArgs(): { server: string; game: string; type: string; name: string } {
+interface ParsedArgs {
+  server: string
+  game: string
+  type: string
+  name: string
+  passphrase?: string
+  inviteCode?: string
+  authToken?: string
+}
+
+function parseArgs(): ParsedArgs {
   const args = process.argv.slice(2)
   const parsed: Record<string, string> = {}
 
@@ -25,12 +39,18 @@ function parseArgs(): { server: string; game: string; type: string; name: string
     if (key && value) parsed[key] = value
   }
 
-  if (!parsed.server || !parsed.game || !parsed.type) usage()
+  // --game is optional if --invite-code is provided (server auto-routes)
+  if (!parsed.server || !parsed.type) usage()
+  if (!parsed.game && !parsed['invite-code']) usage()
+
   return {
     server: parsed.server,
-    game: parsed.game,
+    game: parsed.game ?? '',
     type: parsed.type,
     name: parsed.name ?? `Bot (${parsed.type})`,
+    passphrase: parsed.passphrase,
+    inviteCode: parsed['invite-code'],
+    authToken: parsed['auth-token'],
   }
 }
 
@@ -49,9 +69,13 @@ async function main() {
     gameId: opts.game,
     strategy: createStrategy(),
     displayName: opts.name,
+    passphrase: opts.passphrase,
+    inviteCode: opts.inviteCode,
+    authToken: opts.authToken,
   })
 
-  console.log(`Starting ${opts.type} bot "${opts.name}" → ${opts.server} game ${opts.game}`)
+  const target = opts.inviteCode ? `invite-code ${opts.inviteCode}` : `game ${opts.game}`
+  console.log(`Starting ${opts.type} bot "${opts.name}" → ${opts.server} ${target}`)
 
   process.on('SIGINT', () => {
     console.log('Stopping bot...')
