@@ -9,7 +9,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "jest --forceExit",
+    "test": "jest --forceExit --testPathIgnorePatterns='bot-server'",
+    "test:integration": "jest --forceExit --runInBand --testPathPatterns='bot-server'",
+    "test:all": "npm run test && npm run test:integration",
     "create-game": "tsx scripts/create-game.ts",
     "set-admin-password": "tsx scripts/set-admin-password.ts",
     "lint": "eslint src/"
