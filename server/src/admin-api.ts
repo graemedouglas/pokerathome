@@ -11,9 +11,11 @@ import {
   listPlayerPassphrases,
   createPlayerPassphrase,
   revokePlayerPassphrase,
+  deletePlayerPassphrase,
   listInviteCodes,
   createInviteCode,
   revokeInviteCode,
+  deleteInviteCode,
   deleteAuthTokensByPlayer,
   deleteAllAuthTokens,
 } from './db/auth-queries.js';
@@ -442,6 +444,13 @@ export function registerAdminRoutes(
     return reply.send({ ok: true });
   });
 
+  // Permanently delete a player passphrase
+  app.delete<{ Params: { id: string } }>('/api/auth/passphrases/:id/delete', async (request, reply) => {
+    deletePlayerPassphrase(request.params.id);
+    logger.info({ id: request.params.id }, 'Player passphrase deleted');
+    return reply.send({ ok: true });
+  });
+
   // List invite codes (optional ?gameId= filter)
   app.get('/api/auth/invite-codes', async (request, reply) => {
     const { gameId } = request.query as { gameId?: string };
@@ -470,6 +479,13 @@ export function registerAdminRoutes(
   app.delete<{ Params: { id: string } }>('/api/auth/invite-codes/:id', async (request, reply) => {
     revokeInviteCode(request.params.id);
     logger.info({ id: request.params.id }, 'Invite code revoked');
+    return reply.send({ ok: true });
+  });
+
+  // Permanently delete an invite code
+  app.delete<{ Params: { id: string } }>('/api/auth/invite-codes/:id/delete', async (request, reply) => {
+    deleteInviteCode(request.params.id);
+    logger.info({ id: request.params.id }, 'Invite code deleted');
     return reply.send({ ok: true });
   });
 

@@ -352,7 +352,9 @@ function renderPassphrases(passphrases: PlayerPassphrase[]) {
       <td>${esc(p.label ?? '-')}</td>
       <td><code>${esc(p.passphrase)}</code> <button class="secondary" style="padding:0.2rem 0.4rem;font-size:0.75rem;" onclick="window.__copyText('${esc(p.passphrase)}')">Copy</button></td>
       <td>${status}</td>
-      <td>${canRevoke ? `<button class="danger" onclick="window.__revokePassphrase('${p.id}')">Revoke</button>` : ''}</td>
+      <td>${canRevoke
+        ? `<button class="danger" onclick="window.__revokePassphrase('${p.id}')">Revoke</button>`
+        : `<button class="secondary" style="padding:0.2rem 0.4rem;font-size:0.75rem;" onclick="window.__deletePassphrase('${p.id}')">Clear</button>`}</td>
     </tr>`;
   }).join('')}</tbody></table>`;
 }
@@ -376,7 +378,9 @@ function renderInviteCodes(codes: InviteCode[], games: Game[]) {
       <td>${esc(c.label ?? '-')}</td>
       <td><code>${esc(c.code)}</code> <button class="secondary" style="padding:0.2rem 0.4rem;font-size:0.75rem;" onclick="window.__copyText('${esc(c.code)}')">Copy</button></td>
       <td>${status}</td>
-      <td>${canRevoke ? `<button class="danger" onclick="window.__revokeInviteCode('${c.id}')">Revoke</button>` : ''}</td>
+      <td>${canRevoke
+        ? `<button class="danger" onclick="window.__revokeInviteCode('${c.id}')">Revoke</button>`
+        : `<button class="secondary" style="padding:0.2rem 0.4rem;font-size:0.75rem;" onclick="window.__deleteInviteCode('${c.id}')">Clear</button>`}</td>
     </tr>`;
   }).join('')}</tbody></table>`;
 }
@@ -807,6 +811,26 @@ document.getElementById('revoke-all-btn')!.addEventListener('click', async () =>
   try {
     await revokeInviteCodeApi(id);
     toast('Invite code revoked');
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+};
+
+(window as any).__deletePassphrase = async (id: string) => {
+  try {
+    await apiFetch(`${API}/auth/passphrases/${id}/delete`, { method: 'DELETE' });
+    toast('Passphrase cleared');
+    refresh();
+  } catch (err: any) {
+    toast(err.message, true);
+  }
+};
+
+(window as any).__deleteInviteCode = async (id: string) => {
+  try {
+    await apiFetch(`${API}/auth/invite-codes/${id}/delete`, { method: 'DELETE' });
+    toast('Invite code cleared');
     refresh();
   } catch (err: any) {
     toast(err.message, true);

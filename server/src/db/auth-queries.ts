@@ -138,6 +138,12 @@ export function revokePlayerPassphrase(id: string): void {
     .run(id);
 }
 
+export function deletePlayerPassphrase(id: string): void {
+  getDb()
+    .prepare(`DELETE FROM player_passphrases WHERE id = ?`)
+    .run(id);
+}
+
 // ─── Invite codes ───────────────────────────────────────────────────────────────
 
 export function createInviteCode(
@@ -187,5 +193,11 @@ export function markInviteCodeUsed(id: string, playerId: string): void {
 export function revokeInviteCode(id: string): void {
   getDb()
     .prepare(`UPDATE invite_codes SET revoked = 1 WHERE id = ?`)
+    .run(id);
+}
+
+export function deleteInviteCode(id: string): void {
+  getDb()
+    .prepare(`DELETE FROM invite_codes WHERE id = ?`)
     .run(id);
 }

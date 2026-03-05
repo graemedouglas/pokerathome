@@ -31,11 +31,13 @@ import {
   getPlayerPassphraseByPassphrase,
   markPlayerPassphraseUsed,
   revokePlayerPassphrase,
+  deletePlayerPassphrase,
   createInviteCode,
   listInviteCodes,
   getInviteCodeByCode,
   markInviteCodeUsed,
   revokeInviteCode,
+  deleteInviteCode,
   generateShortCode,
 } from '../src/db/auth-queries';
 
@@ -166,6 +168,13 @@ describe('player_passphrases', () => {
     const found = getPlayerPassphraseByPassphrase(created.passphrase);
     expect(found!.revoked).toBe(1);
   });
+
+  test('deletePlayerPassphrase removes the row', () => {
+    const created = createPlayerPassphrase('Delete Test');
+    deletePlayerPassphrase(created.id);
+    const found = getPlayerPassphraseByPassphrase(created.passphrase);
+    expect(found).toBeUndefined();
+  });
 });
 
 describe('invite_codes', () => {
@@ -210,5 +219,12 @@ describe('invite_codes', () => {
     revokeInviteCode(created.id);
     const found = getInviteCodeByCode(created.code);
     expect(found!.revoked).toBe(1);
+  });
+
+  test('deleteInviteCode removes the row', () => {
+    const created = createInviteCode('game-1', 'Delete Test');
+    deleteInviteCode(created.id);
+    const found = getInviteCodeByCode(created.code);
+    expect(found).toBeUndefined();
   });
 });
