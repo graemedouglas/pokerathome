@@ -350,7 +350,7 @@ function renderPassphrases(passphrases: PlayerPassphrase[]) {
     const canRevoke = !p.revoked && !p.used_by_player_id;
     return `<tr>
       <td>${esc(p.label ?? '-')}</td>
-      <td><code>${esc(p.passphrase)}</code></td>
+      <td><code>${esc(p.passphrase)}</code> <button class="secondary" style="padding:0.2rem 0.4rem;font-size:0.75rem;" onclick="window.__copyText('${esc(p.passphrase)}')">Copy</button></td>
       <td>${status}</td>
       <td>${canRevoke ? `<button class="danger" onclick="window.__revokePassphrase('${p.id}')">Revoke</button>` : ''}</td>
     </tr>`;
@@ -374,7 +374,7 @@ function renderInviteCodes(codes: InviteCode[], games: Game[]) {
     return `<tr>
       <td>${esc(gameMap.get(c.game_id) ?? c.game_id.slice(0, 8))}</td>
       <td>${esc(c.label ?? '-')}</td>
-      <td><code>${esc(c.code)}</code></td>
+      <td><code>${esc(c.code)}</code> <button class="secondary" style="padding:0.2rem 0.4rem;font-size:0.75rem;" onclick="window.__copyText('${esc(c.code)}')">Copy</button></td>
       <td>${status}</td>
       <td>${canRevoke ? `<button class="danger" onclick="window.__revokeInviteCode('${c.id}')">Revoke</button>` : ''}</td>
     </tr>`;
@@ -785,6 +785,13 @@ document.getElementById('revoke-all-btn')!.addEventListener('click', async () =>
     toast(err.message, true);
   }
 });
+
+(window as any).__copyText = (text: string) => {
+  navigator.clipboard.writeText(text).then(
+    () => toast('Copied to clipboard'),
+    () => toast('Failed to copy', true),
+  );
+};
 
 (window as any).__revokePassphrase = async (id: string) => {
   try {
