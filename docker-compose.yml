@@ -12,7 +12,7 @@ services:
       HAND_DELAY_MS: 3000
       MIN_PLAYERS_TO_START: 2
     volumes:
-      - server-data:/data
+      - ${HOME}/.pokerathome:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
@@ -32,5 +32,3 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-volumes:
-  server-data:
