@@ -714,7 +714,20 @@ function resolveShowdown(state: EngineState): Transition[] {
 
   // Recalculate pots for distribution
   const { pots } = calculatePots(state.players);
-  const winners = distributePots(pots, evaluatedHands);
+
+  // Separate sole-eligible pots (uncontested excess) from contested pots.
+  // In standard poker, unmatched all-in excess is returned silently — not awarded as a "win".
+  const contestedPots: PotBreakdown[] = [];
+  for (const pot of pots) {
+    if (pot.eligiblePlayerIds.length === 1) {
+      const player = state.players.find((p) => p.id === pot.eligiblePlayerIds[0]);
+      if (player) player.stack += pot.amount;
+    } else {
+      contestedPots.push(pot);
+    }
+  }
+
+  const winners = distributePots(contestedPots, evaluatedHands);
 
   // Add HAND_END to handEvents BEFORE cloning for SHOWDOWN transition
   // so shouldRevealAtShowdown() can identify winners when filtering cards

@@ -1049,3 +1049,381 @@ describe('Unready message schema', () => {
     expect(result.success).toBe(false);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sole-eligible pot refund (uncontested all-in excess)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Sole-eligible pot refund', () => {
+  const playerNames = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank'];
+
+  /**
+   * Helper: create an N-player game with custom stacks, rig the deck, force
+   * everyone all-in, and return the final state + all transitions.
+   */
+  function runAllIn(stacks: number[], riggedDeck: string[]) {
+    const n = stacks.length;
+    if (n < 2 || n > 6) throw new Error('Need 2-6 players');
+
+    let state = createInitialState({
+      gameId: 'test-sole-pot',
+      gameName: 'Sole Pot Test',
+      gameType: 'cash',
+      smallBlindAmount: 5,
+      bigBlindAmount: 10,
+      maxPlayers: 6,
+      startingStack: stacks[0],
+    });
+
+    for (let i = 0; i < n; i++) {
+      const result = addPlayer(state, `player-${i + 1}`, playerNames[i]);
+      state = result.state;
+    }
+
+    // Set custom stacks
+    for (let i = 0; i < n; i++) {
+      state.players[i].stack = stacks[i];
+    }
+
+    for (let i = 0; i < n; i++) {
+      state = setPlayerReady(state, `player-${i + 1}`);
+    }
+
+    const allTransitions: Array<{ state: EngineState; event: any }> = [];
+    const transitions = startHand(state, riggedDeck);
+    allTransitions.push(...transitions);
+    let current = transitions[transitions.length - 1].state;
+
+    // Force all players all-in
+    while (current.activePlayerId && current.handInProgress) {
+      const actionTransitions = processAction(current, current.activePlayerId, 'ALL_IN');
+      allTransitions.push(...actionTransitions);
+      current = actionTransitions[actionTransitions.length - 1].state;
+    }
+
+    return { finalState: current, transitions: allTransitions };
+  }
+
+  // Backward-compat alias for existing 3-way tests
+  function run3WayAllIn(stacks: [number, number, number], riggedDeck: string[]) {
+    return runAllIn(stacks, riggedDeck);
+  }
+
+  function findHandEndEvent(transitions: Array<{ event: any }>) {
+    return transitions.find((t) => t.event.type === 'HAND_END')?.event;
+  }
+
+  // Deck layout for 3 players (dealt in array order):
+  //   [p1-hole1, p1-hole2, p2-hole1, p2-hole2, p3-hole1, p3-hole2, flop1, flop2, flop3, turn, river, ...]
+  // Board is scattered (no shared straights/flushes) so hole cards determine winner.
+  const usedCards = ['Ah', 'Ad', 'Kh', 'Kd', '4c', '5d', '3h', '7s', 'Jc', 'Qd', '2s'];
+  const filler = createDeck().filter((c) => !usedCards.includes(c));
+
+  test('3-way all-in: losing player with sole-eligible pot is NOT listed as winner', () => {
+    // Alice (500): pair of aces (best), Bob (300): pair of kings, Charlie (200): high card
+    // Alice has 200 excess over Bob → refunded, not a "win"
+    const riggedDeck = [
+      'Ah', 'Ad', // Alice — pair of aces
+      'Kh', 'Kd', // Bob — pair of kings
+      '4c', '5d', // Charlie — high card
+      '3h', '7s', 'Jc', // flop (scattered, no straights/flushes)
+      'Qd',              // turn
+      '2s',              // river
+      ...filler,
+    ];
+
+    const { finalState, transitions } = run3WayAllIn([500, 300, 200], riggedDeck);
+    const handEnd = findHandEndEvent(transitions);
+
+    // Only Alice should be listed as winner (main pot + side pot)
+    // Her excess over Bob should be silently refunded
+    const winnerIds = handEnd.winners.map((w: any) => w.playerId);
+    expect(winnerIds).toContain('player-1'); // Alice wins contested pots
+    expect(winnerIds).not.toContain('player-2'); // Bob lost
+    expect(winnerIds).not.toContain('player-3'); // Charlie lost
+
+    // Total chips conserved
+    const totalStacks = finalState.players.reduce((sum: number, p: any) => sum + p.stack, 0);
+    expect(totalStacks).toBe(1000);
+  });
+
+  test('all-in excess is refunded correctly when biggest stack loses', () => {
+    // Alice (500): worst hand, Bob (300): middle, Charlie (200): best
+    // Alice's excess should be silently refunded
+    const riggedDeck = [
+      '4c', '5d', // Alice — high card (worst)
+      'Kh', 'Kd', // Bob — pair of kings (middle)
+      'Ah', 'Ad', // Charlie — pair of aces (best)
+      '3h', '7s', 'Jc',
+      'Qd',
+      '2s',
+      ...filler,
+    ];
+
+    const { finalState, transitions } = run3WayAllIn([500, 300, 200], riggedDeck);
+    const handEnd = findHandEndEvent(transitions);
+
+    // Charlie wins main pot, Bob wins side pot, Alice gets refund (NOT a winner)
+    const winnerIds = handEnd.winners.map((w: any) => w.playerId);
+    expect(winnerIds).not.toContain('player-1'); // Alice NOT a winner
+    expect(winnerIds).toContain('player-2'); // Bob wins side pot
+    expect(winnerIds).toContain('player-3'); // Charlie wins main pot
+
+    const alice = finalState.players.find((p: any) => p.id === 'player-1')!;
+    const bob = finalState.players.find((p: any) => p.id === 'player-2')!;
+    const charlie = finalState.players.find((p: any) => p.id === 'player-3')!;
+
+    // Alice's only chips are the silently refunded excess
+    expect(alice.stack).toBeGreaterThan(0);
+    expect(alice.stack).toBeLessThan(500); // Lost most of her stack
+    // Total chips conserved
+    expect(alice.stack + bob.stack + charlie.stack).toBe(1000);
+  });
+
+  test('no sole-eligible pot when all stacks are equal', () => {
+    const riggedDeck = [
+      'Ah', 'Ad', // Alice — pair of aces (wins)
+      'Kh', 'Kd', // Bob
+      '4c', '5d', // Charlie
+      '3h', '7s', 'Jc',
+      'Qd',
+      '2s',
+      ...filler,
+    ];
+
+    const { finalState, transitions } = run3WayAllIn([1000, 1000, 1000], riggedDeck);
+    const handEnd = findHandEndEvent(transitions);
+
+    // Single winner, single pot — no sole-eligible pots
+    expect(handEnd.winners).toHaveLength(1);
+    expect(handEnd.winners[0].playerId).toBe('player-1');
+    expect(handEnd.winners[0].amount).toBe(3000);
+
+    const alice = finalState.players.find((p: any) => p.id === 'player-1')!;
+    expect(alice.stack).toBe(3000);
+  });
+
+  test('2-way all-in: bigger stack excess is refunded, not won', () => {
+    let state = createInitialState({
+      gameId: 'test-sole-2way',
+      gameName: '2-Way Sole Pot',
+      gameType: 'cash',
+      smallBlindAmount: 5,
+      bigBlindAmount: 10,
+      maxPlayers: 6,
+      startingStack: 800,
+    });
+
+    const p1 = addPlayer(state, 'player-1', 'Alice');
+    state = p1.state;
+    const p2 = addPlayer(state, 'player-2', 'Bob');
+    state = p2.state;
+
+    state.players[0].stack = 800;
+    state.players[1].stack = 400;
+
+    state = setPlayerReady(state, 'player-1');
+    state = setPlayerReady(state, 'player-2');
+
+    const riggedDeck = [
+      'Ah', 'Ad', // Alice — pair of aces (wins)
+      '4c', '5d', // Bob — high card
+      '3h', '7s', 'Jc',
+      'Qd',
+      '2s',
+      ...filler,
+    ];
+
+    const allTransitions: Array<{ state: EngineState; event: any }> = [];
+    const transitions = startHand(state, riggedDeck);
+    allTransitions.push(...transitions);
+    let current = transitions[transitions.length - 1].state;
+
+    while (current.activePlayerId && current.handInProgress) {
+      const actionTransitions = processAction(current, current.activePlayerId, 'ALL_IN');
+      allTransitions.push(...actionTransitions);
+      current = actionTransitions[actionTransitions.length - 1].state;
+    }
+
+    const handEnd = findHandEndEvent(allTransitions);
+
+    // Alice wins the contested pot only; excess is refunded silently
+    expect(handEnd.winners).toHaveLength(1);
+    expect(handEnd.winners[0].playerId).toBe('player-1');
+
+    // Alice ends with all chips (she won the contested pot + got refund)
+    const alice = current.players.find((p: any) => p.id === 'player-1')!;
+    const bob = current.players.find((p: any) => p.id === 'player-2')!;
+    expect(alice.stack).toBe(1200);
+    expect(bob.stack).toBe(0);
+  });
+
+  test('4-way all-in with different stacks: sole-eligible pots are refunded', () => {
+    // Stacks: Alice 800, Bob 600, Charlie 400, Diana 200
+    // Hands (dealt in array order): Alice=AA, Bob=KK, Charlie=QQ, Diana=high card
+    // Board: scattered, no shared hands
+    const cards4 = ['Ah', 'Ad', 'Kh', 'Kd', 'Qh', 'Qd', '4c', '5d', '3h', '7s', 'Jc', '9s', '2s'];
+    const filler4 = createDeck().filter((c) => !cards4.includes(c));
+    const riggedDeck = [
+      'Ah', 'Ad', // p1 Alice — aces (best)
+      'Kh', 'Kd', // p2 Bob — kings
+      'Qh', 'Qd', // p3 Charlie — queens
+      '4c', '5d', // p4 Diana — high card (worst)
+      '3h', '7s', 'Jc', // flop
+      '9s',              // turn
+      '2s',              // river
+      ...filler4,
+    ];
+
+    const { finalState, transitions } = runAllIn([800, 600, 400, 200], riggedDeck);
+    const handEnd = findHandEndEvent(transitions);
+
+    // Alice wins all contested pots. Her 200 excess over Bob is refunded silently.
+    // Pots: main (200*4=800), side1 (200*3=600), side2 (200*2=400), sole (200*1=200 refund)
+    const winnerIds = handEnd.winners.map((w: any) => w.playerId);
+    expect(winnerIds).toContain('player-1'); // Alice wins contested pots
+    expect(winnerIds).not.toContain('player-2'); // Bob lost
+    expect(winnerIds).not.toContain('player-3'); // Charlie lost
+    expect(winnerIds).not.toContain('player-4'); // Diana lost
+
+    // No sole-eligible pot in winners
+    for (const w of handEnd.winners) {
+      // Every winner entry should have eligiblePlayerIds > 1 (contested)
+      expect(w.amount).toBeGreaterThan(0);
+    }
+
+    // Chips conserved
+    const totalStacks = finalState.players.reduce((sum: number, p: any) => sum + p.stack, 0);
+    expect(totalStacks).toBe(2000); // 800+600+400+200
+
+    // Alice should have all chips
+    const alice = finalState.players.find((p: any) => p.id === 'player-1')!;
+    expect(alice.stack).toBe(2000);
+  });
+
+  test('4-way all-in: middle player with biggest stack loses, excess refunded', () => {
+    // Alice 200, Bob 800 (biggest, worst hand), Charlie 400, Diana 600
+    // Bob has high card (worst), Diana has aces (best)
+    const cards4 = ['Ah', 'Ad', 'Kh', 'Kd', 'Qh', 'Qd', '4c', '5d', '3h', '7s', 'Jc', '9s', '2s'];
+    const filler4 = createDeck().filter((c) => !cards4.includes(c));
+    const riggedDeck = [
+      'Qh', 'Qd', // p1 Alice (200) — queens
+      '4c', '5d', // p2 Bob (800) — high card (worst)
+      'Kh', 'Kd', // p3 Charlie (400) — kings
+      'Ah', 'Ad', // p4 Diana (600) — aces (best)
+      '3h', '7s', 'Jc',
+      '9s',
+      '2s',
+      ...filler4,
+    ];
+
+    const { finalState, transitions } = runAllIn([200, 800, 400, 600], riggedDeck);
+    const handEnd = findHandEndEvent(transitions);
+
+    // Bob (biggest stack, worst hand) should NOT be in winners — his excess is refunded
+    const winnerIds = handEnd.winners.map((w: any) => w.playerId);
+    expect(winnerIds).not.toContain('player-2'); // Bob NOT a winner
+
+    // Diana wins main pot (best hand), Charlie wins next side pot, Alice wins nothing
+    expect(winnerIds).toContain('player-4'); // Diana wins
+
+    // Chips conserved
+    const totalStacks = finalState.players.reduce((sum: number, p: any) => sum + p.stack, 0);
+    expect(totalStacks).toBe(2000);
+
+    // Bob should only have his refunded excess (800 - 600 = 200)
+    const bob = finalState.players.find((p: any) => p.id === 'player-2')!;
+    expect(bob.stack).toBe(200);
+  });
+
+  test('6-way all-in with all different stacks: sole-eligible pot refunded', () => {
+    // 6 players, all different stacks, all go all-in
+    // Stacks: 1000, 800, 600, 400, 300, 100
+    // Hands: p1=AA, p2=KK, p3=QQ, p4=JJ, p5=TT, p6=high card
+    const cards6 = [
+      'Ah', 'Ad', 'Kh', 'Kd', 'Qh', 'Qd', 'Jh', 'Jd', 'Th', 'Td',
+      '4c', '5d', '3s', '7s', '9c', '8s', '2s',
+    ];
+    const filler6 = createDeck().filter((c) => !cards6.includes(c));
+    const riggedDeck = [
+      'Ah', 'Ad', // p1 (1000) — aces
+      'Kh', 'Kd', // p2 (800) — kings
+      'Qh', 'Qd', // p3 (600) — queens
+      'Jh', 'Jd', // p4 (400) — jacks
+      'Th', 'Td', // p5 (300) — tens
+      '4c', '5d', // p6 (100) — high card
+      '3s', '7s', '9c', // flop (scattered)
+      '8s',             // turn
+      '2s',             // river
+      ...filler6,
+    ];
+
+    const { finalState, transitions } = runAllIn([1000, 800, 600, 400, 300, 100], riggedDeck);
+    const handEnd = findHandEndEvent(transitions);
+
+    // Alice (p1) has best hand and biggest stack.
+    // Her 200 excess over Bob (1000-800) is a sole-eligible pot → refunded.
+    // She wins all contested pots (main + 4 side pots).
+    const winnerIds = handEnd.winners.map((w: any) => w.playerId);
+    expect(winnerIds).toContain('player-1');
+    // No other player should be a winner
+    const uniqueWinners = [...new Set(winnerIds)];
+    expect(uniqueWinners).toEqual(['player-1']);
+
+    // Chips conserved: 1000+800+600+400+300+100 = 3200
+    const totalStacks = finalState.players.reduce((sum: number, p: any) => sum + p.stack, 0);
+    expect(totalStacks).toBe(3200);
+
+    // Alice gets everything
+    const alice = finalState.players.find((p: any) => p.id === 'player-1')!;
+    expect(alice.stack).toBe(3200);
+  });
+
+  test('6-way all-in: biggest stack has worst hand, multiple side pot winners', () => {
+    // p1 (1000) worst hand, p6 (100) best hand — maximum side pot chaos
+    // Each player wins the main pot they're eligible for, p1's excess refunded
+    const cards6 = [
+      'Ah', 'Ad', 'Kh', 'Kd', 'Qh', 'Qd', 'Jh', 'Jd', 'Th', 'Td',
+      '4c', '5d', '3s', '7s', '9c', '8s', '2s',
+    ];
+    const filler6 = createDeck().filter((c) => !cards6.includes(c));
+    const riggedDeck = [
+      '4c', '5d', // p1 (1000) — high card (worst)
+      'Th', 'Td', // p2 (800) — tens
+      'Jh', 'Jd', // p3 (600) — jacks
+      'Qh', 'Qd', // p4 (400) — queens
+      'Kh', 'Kd', // p5 (300) — kings
+      'Ah', 'Ad', // p6 (100) — aces (best)
+      '3s', '7s', '9c',
+      '8s',
+      '2s',
+      ...filler6,
+    ];
+
+    const { finalState, transitions } = runAllIn([1000, 800, 600, 400, 300, 100], riggedDeck);
+    const handEnd = findHandEndEvent(transitions);
+
+    // p1 has the worst hand and biggest stack — should NOT be a winner
+    const winnerIds = handEnd.winners.map((w: any) => w.playerId);
+    expect(winnerIds).not.toContain('player-1'); // Worst hand, excess refunded
+
+    // p6 (aces) wins main pot (all 6 eligible)
+    expect(winnerIds).toContain('player-6');
+    // p5 (kings) wins next side pot (p1-p5 eligible, p5 has best hand among them)
+    expect(winnerIds).toContain('player-5');
+    // p4 (queens) wins next side pot (p1-p4 eligible)
+    expect(winnerIds).toContain('player-4');
+    // p3 (jacks) wins next (p1-p3 eligible)
+    expect(winnerIds).toContain('player-3');
+    // p2 (tens) wins next (p1-p2 eligible)
+    expect(winnerIds).toContain('player-2');
+
+    // p1 should only have refunded excess (1000 - 800 = 200)
+    const p1 = finalState.players.find((p: any) => p.id === 'player-1')!;
+    expect(p1.stack).toBe(200);
+
+    // Chips conserved
+    const totalStacks = finalState.players.reduce((sum: number, p: any) => sum + p.stack, 0);
+    expect(totalStacks).toBe(3200);
+  });
+});
