@@ -71,9 +71,11 @@ export class PlayerRenderer extends Container {
     this.drawPanel(false);
     this.addChild(this.bgPanel);
 
-    // Card container (positioned above panel)
+    // Card container (above panel for bottom seats, below panel for top seats)
     this.cardContainer = new Container();
-    this.cardContainer.y = -PANEL_H / 2 - CARD_HEIGHT / 2 - 6;
+    this.cardContainer.y = this.isTopSeat()
+      ? PANEL_H / 2 + CARD_HEIGHT / 2 + 6
+      : -PANEL_H / 2 - CARD_HEIGHT / 2 - 6;
     this.addChild(this.cardContainer);
 
     // Name (centered in panel)
@@ -163,8 +165,15 @@ export class PlayerRenderer extends Container {
       },
     });
     this.handDescText.anchor.set(0.5);
-    this.handDescText.y = -PANEL_H / 2 - 4;
+    this.handDescText.y = this.isTopSeat()
+      ? PANEL_H / 2 + 4
+      : -PANEL_H / 2 - 4;
     this.addChild(this.handDescText);
+  }
+
+  /** Whether this seat is at the top of the table (cards go below panel) */
+  private isTopSeat(): boolean {
+    return this.seatIndex === 2 || this.seatIndex === 3 || this.seatIndex === 4;
   }
 
   /** Whether avatar goes on the right side of the panel */
@@ -462,7 +471,9 @@ export class PlayerRenderer extends Container {
       },
     });
     pop.anchor.set(0.5);
-    pop.y = -PANEL_H / 2 - CARD_HEIGHT - 14;
+    pop.y = this.isTopSeat()
+      ? PANEL_H / 2 + CARD_HEIGHT + 14
+      : -PANEL_H / 2 - CARD_HEIGHT - 14;
     pop.alpha = 0;
     pop.scale.set(0.3);
 

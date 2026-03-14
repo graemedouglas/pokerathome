@@ -92,6 +92,7 @@ export class ActionPanel extends Container {
     this.buildSliderRow();
     this.buildPresetRow();
     this.setupDragHandling();
+    this.setupWheelHandling();
   }
 
   private drawBgPanel(h: number): void {
@@ -276,6 +277,18 @@ export class ActionPanel extends Container {
     this.on('globalpointermove', onMove);
     this.on('pointerup', onUp);
     this.on('pointerupoutside', onUp);
+  }
+
+  private setupWheelHandling(): void {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return;
+
+    canvas.addEventListener('wheel', (e: WheelEvent) => {
+      if (!this.visible || !this.raiseSection.visible) return;
+      e.preventDefault();
+      const direction = e.deltaY < 0 ? 1 : -1;
+      this.setRaiseAmount(this.raiseAmount + direction * this.chipStep);
+    }, { passive: false });
   }
 
   private setSliderFromX(x: number): void {

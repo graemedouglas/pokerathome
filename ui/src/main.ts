@@ -71,6 +71,18 @@ async function main() {
 
     controller.attachRenderer(renderer, result.initialGameState ?? undefined, result.handHistory)
 
+    // Replay chat history from server (reconnect / spectator join)
+    if (result.chatHistory?.length) {
+      for (const msg of result.chatHistory) {
+        renderer.addChatMessage({
+          displayName: msg.displayName,
+          message: msg.message,
+          timestamp: msg.timestamp,
+          role: msg.role as 'player' | 'spectator' | undefined,
+        })
+      }
+    }
+
     controller.onEvent((event) => {
       if (event.type === 'error') {
         renderer.addLog(`Error: ${event.message}`)

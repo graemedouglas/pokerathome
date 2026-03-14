@@ -218,6 +218,49 @@ export function playBlindLevelUp(): void {
   osc2.stop(ctx.currentTime + 0.4);
 }
 
+// ─── Notification Sounds ──────────────────────────────────────────────────────
+
+/** Attention-grabbing bell tone when it's the player's turn. */
+export function playTurnDing(): void {
+  if (!GameSettings.turnSound) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+
+  // Two-oscillator bell: 660Hz + 880Hz for a rich ding
+  for (const freq of [660, 880]) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(0.18, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  }
+}
+
+/** Subtle short blip for incoming chat messages. */
+export function playChatDing(): void {
+  if (!GameSettings.chatSound) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(520, ctx.currentTime);
+  gain.gain.setValueAtTime(0.12, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+  osc.start(ctx.currentTime);
+  osc.stop(ctx.currentTime + 0.08);
+}
+
 // ─── Victory ─────────────────────────────────────────────────────────────────
 
 /** Victory fanfare — ascending major arpeggio (C5-E5-G5-C6) with sustain. */

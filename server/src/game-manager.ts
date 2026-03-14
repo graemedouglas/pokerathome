@@ -7,7 +7,7 @@
  */
 
 import type { FastifyBaseLogger } from 'fastify';
-import type { Event, GameListItem, GameState, GameStateUpdatePayload, BlindLevel } from '@pokerathome/schema';
+import type { Event, GameListItem, GameState, GameStateUpdatePayload, BlindLevel, ChatMessagePayload } from '@pokerathome/schema';
 import type { SessionManager } from './ws/session.js';
 import {
   createInitialState,
@@ -79,6 +79,7 @@ interface ActiveGame {
   waitingForPlayers: boolean;
   tournamentStartedAt: number | null;
   tournamentConfig: TournamentConfig | null;
+  chatHistory: ChatMessagePayload[];
 }
 
 interface ActionResult {
@@ -179,6 +180,7 @@ export class GameManager {
       waitingForPlayers: false,
       tournamentStartedAt: null,
       tournamentConfig,
+      chatHistory: [],
     };
   }
 
@@ -1370,5 +1372,20 @@ export class GameManager {
   /** Get the replay recorder for a game (for chat recording). */
   getRecorder(gameId: string): ReplayRecorder | null {
     return this.activeGames.get(gameId)?.recorder ?? null;
+  }
+
+  /** Store a chat message in the game's in-memory history. */
+  addChatMessage(gameId: string, msg: ChatMessagePayload): void {
+    const active = this.activeGames.get(gameId);
+    if (!active) return;
+    active.chatHistory.push(msg);
+    if (active.chatHistory.length > config.MAX_CHAT_HISTORY) {
+      active.chatHistory.splice(0, active.chatHistory.length - config.MAX_CHAT_HISTORY);
+    }
+  }
+
+  /** Get chat history for a game (for reconnect/spectator join). */
+  getChatHistory(gameId: string): ChatMessagePayload[] {
+    return this.activeGames.get(gameId)?.chatHistory ?? [];
   }
 }

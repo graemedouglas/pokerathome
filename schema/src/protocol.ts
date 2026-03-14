@@ -447,6 +447,15 @@ export const GameListItem = z.object({
 });
 export type GameListItem = z.infer<typeof GameListItem>;
 
+export const ChatMessagePayload = z.object({
+  playerId: z.string().uuid(),
+  displayName: z.string(),
+  message: z.string(),
+  timestamp: z.string().datetime(),
+  role: PlayerRole,
+});
+export type ChatMessagePayload = z.infer<typeof ChatMessagePayload>;
+
 export const GameListPayload = z.object({
   games: z.array(GameListItem),
 });
@@ -455,6 +464,7 @@ export type GameListPayload = z.infer<typeof GameListPayload>;
 export const GameJoinedPayload = z.object({
   gameState: GameState,
   handEvents: z.array(Event).optional(),
+  chatHistory: z.array(ChatMessagePayload).optional(),
 });
 export type GameJoinedPayload = z.infer<typeof GameJoinedPayload>;
 
@@ -484,14 +494,6 @@ export const GameOverPayload = z.object({
 });
 export type GameOverPayload = z.infer<typeof GameOverPayload>;
 
-export const ChatMessagePayload = z.object({
-  playerId: z.string().uuid(),
-  displayName: z.string(),
-  message: z.string(),
-  timestamp: z.string().datetime(),
-  role: PlayerRole,
-});
-export type ChatMessagePayload = z.infer<typeof ChatMessagePayload>;
 
 export const ErrorPayload = z.object({
   code: ErrorCode,
@@ -673,6 +675,7 @@ export const AlreadyInGameServerMessage = z.object({
 
 export const RejoinedGamePayload = z.object({
   currentGame: GameStateUpdatePayload,
+  chatHistory: z.array(ChatMessagePayload).optional(),
 });
 export type RejoinedGamePayload = z.infer<typeof RejoinedGamePayload>;
 
