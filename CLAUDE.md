@@ -42,7 +42,7 @@ pnpm --filter @pokerathome/schema build   # Rebuild schema (required after proto
 - **Don't rename values unnecessarily** as they flow through the system. If the API gives `startDate`, keep it as `startDate`.
 - **Tests:** strong, minimally comprehensive test suites over many tiny unit tests. Tests should be flexible, not tightly coupled to implementation details.
 - **Schema must stay in sync with server.** If WS protocol changes in server, update `schema/src/protocol.ts` and rebuild. People build bots solely from the schema.
-- **All bug fixes must include an e2e test** to lock down the behavior.
+- **All changes must include appropriate tests.** Bug fixes require an e2e test to lock down the behavior. New features and enhancements should include unit and/or integration tests covering the key behaviors. Use judgment on test type — prefer the test level closest to the change (unit for engine logic, integration for multi-component flows, e2e for user-facing behavior).
 - **Logging:** pino. Errors must use `logger.error({ err })` — the param must be named `err` for proper serialization.
 - **Dates:** use date-fns for all datetime work.
 - **UI style:** sleek and crunchy — Apple-esque. Not over-minimal, not over-decorated.
