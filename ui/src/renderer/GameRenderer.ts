@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
 import { GameState, AvailableActions, PlayerAction, Card, Standing } from '../types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, NUM_SEATS, TABLE_CENTER_X, TABLE_CENTER_Y } from '../constants';
-import { computeSeatPositions } from '../utils/Layout';
+import { computeSeatPositions, toVisualSeat } from '../utils/Layout';
 import { TableRenderer } from './TableRenderer';
 import { PlayerRenderer } from './PlayerRenderer';
 import { CommunityCards } from './CommunityCards';
@@ -70,6 +70,7 @@ export class GameRenderer {
   private victoryOverlay: VictoryOverlay | null = null;
   private onSitOutClicked: ((sittingOut: boolean) => void) | null = null;
   private sitOutPendingTimer: ReturnType<typeof setTimeout> | null = null;
+  private seatOffset = 0;
 
   async init(isSpectator = false, ws?: WsClient, replayController?: ReplayController): Promise<void> {
     this.isSpectator = isSpectator;
@@ -386,15 +387,21 @@ export class GameRenderer {
     });
   }
 
+  /** Set seat rotation so the given absolute seatIndex appears at visual seat 0 (bottom center). */
+  setSeatOffset(offset: number): void {
+    this.seatOffset = offset;
+  }
+
   update(state: GameState): void {
     this.lastState = state;
     const winnerIds = new Set(state.winners.map(w => w.playerIndex));
 
     for (let i = 0; i < NUM_SEATS; i++) {
-      const player = state.players.find(p => p.seatIndex === i);
+      const actualSeat = (i + this.seatOffset) % NUM_SEATS;
+      const player = state.players.find(p => p.seatIndex === actualSeat);
       if (player) {
         this.playerRenderers[i].visible = true;
-        this.playerRenderers[i].update(player, state.phase, winnerIds.has(i));
+        this.playerRenderers[i].update(player, state.phase, winnerIds.has(actualSeat));
 
         // Show hand description for human player
         if (player.isHuman && player.holeCards.length === 2 && !player.isFolded) {
@@ -521,8 +528,8 @@ export class GameRenderer {
       props: { scaleX: 1, scaleY: 1, alpha: 1 },
     });
 
-    // Bounce the winning player panels
-    const promises = winnerIndices.map(i => this.playerRenderers[i].playWinAnimation());
+    // Bounce the winning player panels (convert absolute seat indices to visual positions)
+    const promises = winnerIndices.map(i => this.playerRenderers[toVisualSeat(i, this.seatOffset)].playWinAnimation());
     await Promise.all(promises);
   }
 
@@ -641,8 +648,9 @@ export class GameRenderer {
 
   /** Show action pop text on a player seat */
   showPlayerActionPop(seatIndex: number, text: string, color: number): void {
-    if (seatIndex >= 0 && seatIndex < this.playerRenderers.length) {
-      this.playerRenderers[seatIndex].showActionPop(text, color);
+    const visualSeat = toVisualSeat(seatIndex, this.seatOffset);
+    if (visualSeat >= 0 && visualSeat < this.playerRenderers.length) {
+      this.playerRenderers[visualSeat].showActionPop(text, color);
     }
   }
 }

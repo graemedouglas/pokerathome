@@ -25,3 +25,11 @@ export function computeSeatPositions(): SeatPosition[] {
   }
   return positions;
 }
+
+/**
+ * Map an absolute seatIndex to a visual position index.
+ * When seatOffset equals the human player's actual seat, visual seat 0 = bottom center.
+ */
+export function toVisualSeat(actualSeat: number, seatOffset: number): number {
+  return ((actualSeat - seatOffset) % NUM_SEATS + NUM_SEATS) % NUM_SEATS;
+}

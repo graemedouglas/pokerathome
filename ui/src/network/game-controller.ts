@@ -386,6 +386,14 @@ export class GameController {
     const uiState = adaptGameState(serverState, ctx)
     this.lastUiState = uiState
 
+    // Set seat rotation so human player sits at bottom center
+    if (this.renderer && !this.isSpectator) {
+      const humanPlayer = serverState.players.find(p => p.id === this.myPlayerId)
+      if (humanPlayer !== undefined) {
+        this.renderer.setSeatOffset(humanPlayer.seatIndex)
+      }
+    }
+
     // Handle event-driven animations
     await this.processEvent(event, serverState, uiState)
 

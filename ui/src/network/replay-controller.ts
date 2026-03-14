@@ -167,6 +167,14 @@ export class ReplayController {
 
     const uiState = adaptGameState(serverState, ctx)
 
+    // Set seat rotation so viewed player sits at bottom center
+    if (this.renderer) {
+      const viewedPlayer = serverState.players.find(p => p.id === this.myPlayerId)
+      if (viewedPlayer) {
+        this.renderer.setSeatOffset(viewedPlayer.seatIndex)
+      }
+    }
+
     // Decide whether to animate or snap
     const shouldAnimate = isPlaying && speed <= 2 && !jumped
     if (shouldAnimate) {
