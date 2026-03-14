@@ -14,6 +14,10 @@ export class SettingsPanel extends Container {
   private sfxToggleKnob!: Graphics;
   private ttsToggleBg!: Graphics;
   private ttsToggleKnob!: Graphics;
+  private turnToggleBg!: Graphics;
+  private turnToggleKnob!: Graphics;
+  private chatToggleBg!: Graphics;
+  private chatToggleKnob!: Graphics;
   private avatarSprites: Container[] = [];
   private selectedBorder: Graphics | null = null;
   private app: AppLike;
@@ -42,7 +46,7 @@ export class SettingsPanel extends Container {
     this.addChild(this.panel);
 
     const PW = 500;
-    const PH = 520;
+    const PH = 620;
 
     // Panel background
     const bg = new Graphics();
@@ -210,8 +214,88 @@ export class SettingsPanel extends Container {
     ttsDesc.y = ttsToggleY + 16;
     this.panel.addChild(ttsDesc);
 
+    // --- Turn Sound Toggle ---
+    const turnToggleY = -PH / 2 + 250;
+    const turnLabel = new Text({
+      text: 'Turn Notification',
+      style: { fontSize: 16, fill: COLORS.textLight, fontFamily: 'Arial' },
+    });
+    turnLabel.anchor.set(0, 0.5);
+    turnLabel.x = -PW / 2 + 40;
+    turnLabel.y = turnToggleY;
+    this.panel.addChild(turnLabel);
+
+    const turnToggleContainer = new Container();
+    turnToggleContainer.x = PW / 2 - 70;
+    turnToggleContainer.y = turnToggleY;
+    turnToggleContainer.eventMode = 'static';
+    turnToggleContainer.cursor = 'pointer';
+
+    this.turnToggleBg = new Graphics();
+    this.drawToggle(this.turnToggleBg, GameSettings.turnSound);
+    turnToggleContainer.addChild(this.turnToggleBg);
+
+    this.turnToggleKnob = new Graphics();
+    this.drawKnob(this.turnToggleKnob, GameSettings.turnSound);
+    turnToggleContainer.addChild(this.turnToggleKnob);
+
+    turnToggleContainer.on('pointerdown', () => {
+      GameSettings.turnSound = !GameSettings.turnSound;
+      this.drawToggle(this.turnToggleBg, GameSettings.turnSound);
+      this.drawKnob(this.turnToggleKnob, GameSettings.turnSound);
+    });
+    this.panel.addChild(turnToggleContainer);
+
+    const turnDesc = new Text({
+      text: 'Play a ding when it\'s your turn to act',
+      style: { fontSize: 11, fill: COLORS.textMuted, fontFamily: 'Arial' },
+    });
+    turnDesc.x = -PW / 2 + 40;
+    turnDesc.y = turnToggleY + 16;
+    this.panel.addChild(turnDesc);
+
+    // --- Chat Sound Toggle ---
+    const chatToggleY = -PH / 2 + 300;
+    const chatLabel = new Text({
+      text: 'Chat Notification',
+      style: { fontSize: 16, fill: COLORS.textLight, fontFamily: 'Arial' },
+    });
+    chatLabel.anchor.set(0, 0.5);
+    chatLabel.x = -PW / 2 + 40;
+    chatLabel.y = chatToggleY;
+    this.panel.addChild(chatLabel);
+
+    const chatToggleContainer = new Container();
+    chatToggleContainer.x = PW / 2 - 70;
+    chatToggleContainer.y = chatToggleY;
+    chatToggleContainer.eventMode = 'static';
+    chatToggleContainer.cursor = 'pointer';
+
+    this.chatToggleBg = new Graphics();
+    this.drawToggle(this.chatToggleBg, GameSettings.chatSound);
+    chatToggleContainer.addChild(this.chatToggleBg);
+
+    this.chatToggleKnob = new Graphics();
+    this.drawKnob(this.chatToggleKnob, GameSettings.chatSound);
+    chatToggleContainer.addChild(this.chatToggleKnob);
+
+    chatToggleContainer.on('pointerdown', () => {
+      GameSettings.chatSound = !GameSettings.chatSound;
+      this.drawToggle(this.chatToggleBg, GameSettings.chatSound);
+      this.drawKnob(this.chatToggleKnob, GameSettings.chatSound);
+    });
+    this.panel.addChild(chatToggleContainer);
+
+    const chatDesc = new Text({
+      text: 'Play a sound for incoming chat messages',
+      style: { fontSize: 11, fill: COLORS.textMuted, fontFamily: 'Arial' },
+    });
+    chatDesc.x = -PW / 2 + 40;
+    chatDesc.y = chatToggleY + 16;
+    this.panel.addChild(chatDesc);
+
     // --- Avatar Picker ---
-    const avatarHeaderY = -PH / 2 + 260;
+    const avatarHeaderY = -PH / 2 + 360;
     const avatarLabel = new Text({
       text: 'Your Avatar',
       style: { fontSize: 16, fill: COLORS.textLight, fontFamily: 'Arial' },
@@ -307,6 +391,10 @@ export class SettingsPanel extends Container {
     this.drawKnob(this.sfxToggleKnob, GameSettings.soundEffects);
     this.drawToggle(this.ttsToggleBg, GameSettings.dealerNarration);
     this.drawKnob(this.ttsToggleKnob, GameSettings.dealerNarration);
+    this.drawToggle(this.turnToggleBg, GameSettings.turnSound);
+    this.drawKnob(this.turnToggleKnob, GameSettings.turnSound);
+    this.drawToggle(this.chatToggleBg, GameSettings.chatSound);
+    this.drawKnob(this.chatToggleKnob, GameSettings.chatSound);
   }
 
   hide(): void {

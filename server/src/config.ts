@@ -28,6 +28,9 @@ const envSchema = z.object({
   /** Directory to store replay files */
   REPLAY_DIR: z.string().default('./replays/'),
 
+  /** Maximum number of chat messages to keep in memory per game */
+  MAX_CHAT_HISTORY: z.coerce.number().int().min(0).default(5000),
+
   /** Password required to access admin API */
   ADMIN_PASSWORD: z.string().min(1).default('admin'),
 });

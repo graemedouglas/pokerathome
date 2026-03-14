@@ -1,4 +1,4 @@
-import type { ServerMessage, Event as ServerEvent } from '@pokerathome/schema'
+import type { ServerMessage, Event as ServerEvent, ChatMessagePayload } from '@pokerathome/schema'
 import type { GameListItem, GameStateUpdatePayload } from '@pokerathome/schema'
 import { WsClient } from '../network/ws-client'
 
@@ -10,6 +10,7 @@ export interface LobbyResult {
   isReplay?: boolean
   initialGameState?: GameStateUpdatePayload
   handHistory?: ServerEvent[]
+  chatHistory?: ChatMessagePayload[]
 }
 
 type LobbyScreen = 'connect' | 'games' | 'waiting'
@@ -24,6 +25,7 @@ export class Lobby {
   private isSpectator = false
   private isReplay = false
   private handHistory?: ServerEvent[]
+  private chatHistory?: ChatMessagePayload[]
   private currentScreen: LobbyScreen = 'connect'
   private removeMessageHandler?: () => void
   private lobbyPlayerList: HTMLElement | null = null
@@ -430,10 +432,13 @@ export class Lobby {
 
       case 'gameJoined': {
         if (this.isSpectator) {
-          const gsPayload = (msg.payload as { gameState: GameStateUpdatePayload['gameState']; handEvents?: ServerEvent[] })
+          const gsPayload = (msg.payload as { gameState: GameStateUpdatePayload['gameState']; handEvents?: ServerEvent[]; chatHistory?: ChatMessagePayload[] })
           this.handHistory = gsPayload.handEvents
+          this.chatHistory = gsPayload.chatHistory
           this.finish({ gameState: gsPayload.gameState, event: { type: 'PLAYER_JOINED', playerId: this.playerId, displayName: '', seatIndex: 0 } } as GameStateUpdatePayload)
         } else {
+          const gsPayload = (msg.payload as { chatHistory?: ChatMessagePayload[] })
+          this.chatHistory = gsPayload.chatHistory
           this.showWaitingScreen()
         }
         break
@@ -473,9 +478,10 @@ export class Lobby {
       }
 
       case 'rejoinedGame': {
-        const payload = msg.payload as { currentGame: GameStateUpdatePayload }
+        const payload = msg.payload as { currentGame: GameStateUpdatePayload; chatHistory?: ChatMessagePayload[] }
         const myPlayer = payload.currentGame.gameState.players.find(p => p.id === this.playerId)
         this.isSpectator = myPlayer?.role === 'spectator'
+        this.chatHistory = payload.chatHistory
         this.finish(payload.currentGame)
         break
       }
@@ -568,6 +574,7 @@ export class Lobby {
       isReplay: this.isReplay,
       initialGameState,
       handHistory: this.handHistory,
+      chatHistory: this.chatHistory,
     })
     this.resolve = null
   }

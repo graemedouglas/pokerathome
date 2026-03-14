@@ -21,6 +21,7 @@ import {
   playBlindWarningTick, playBlindLevelUp, playBlindDingDong, playCountdownTick,
   playCardShuffle, playCardDeal, playCardFlip,
   playCheckSound, playBetSound, playCallSound, playRaiseSound, playAllInSound, playFoldSound,
+  playTurnDing, playChatDing,
 } from '../audio/sounds'
 import { speak, cancelSpeech, cardToWords } from '../audio/dealer-narration'
 import { StatsTracker } from '../stats-tracker'
@@ -138,6 +139,9 @@ export class GameController {
       // by pending actions in the promise chain
       if (msg.action === 'chatMessage') {
         const chat = msg.payload as { playerId: string; displayName: string; message: string; timestamp: string; role?: string }
+        if (chat.playerId !== this.myPlayerId) {
+          playChatDing()
+        }
         if (this.renderer) {
           this.renderer.addChatMessage({
             displayName: chat.displayName,
@@ -396,6 +400,7 @@ export class GameController {
     // Handle action request (it's our turn) -- spectators never act
     // Skip if sitOutPending: user just clicked "Sit Out" but server hasn't confirmed yet
     if (actionRequest && !this.pendingActionRequest && !this.isSpectator && !this.sitOutPending && !this.mySittingOut) {
+      playTurnDing()
       this.pendingActionRequest = true
       this.actionCancelled = false
       const available = adaptActionRequest(actionRequest)

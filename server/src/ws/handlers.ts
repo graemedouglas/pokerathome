@@ -212,7 +212,11 @@ export function handleJoinGame(
   // Send gameJoined to the joining player
   sessions.send(session.playerId, {
     action: 'gameJoined',
-    payload: { gameState: result.gameState, handEvents: result.handEvents },
+    payload: {
+      gameState: result.gameState,
+      handEvents: result.handEvents,
+      chatHistory: gameManager.getChatHistory(payload.gameId),
+    },
   });
 
   // Broadcast PLAYER_JOINED event to others in the game
@@ -390,6 +394,20 @@ export function handleChat(
     return;
   }
 
+  // Strip non-Latin script characters (CJK, Arabic, Cyrillic, etc.) but keep
+  // emojis, extended Latin (accents), digits, punctuation, and symbols.
+  const filtered = payload.message
+    .replace(/[\p{Script=Han}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Thai}\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Hebrew}\p{Script=Katakana}\p{Script=Hiragana}]/gu, '')
+    .trim();
+
+  if (!filtered) {
+    sessions.send(session.playerId, {
+      action: 'error',
+      payload: { code: 'INVALID_MESSAGE', message: 'Message contains no allowed characters.' },
+    });
+    return;
+  }
+
   // Look up sender's role from the game engine state
   const engineState = gameManager.getActiveGameState(session.gameId);
   const senderPlayer = engineState?.players.find(p => p.id === session.playerId);
@@ -398,7 +416,7 @@ export function handleChat(
   const chatPayload = {
     playerId: session.playerId,
     displayName: session.displayName,
-    message: payload.message,
+    message: filtered,
     timestamp: new Date().toISOString(),
     role,
   };
@@ -407,6 +425,9 @@ export function handleChat(
     action: 'chatMessage',
     payload: chatPayload,
   });
+
+  // Store in game's chat history for reconnect/spectator join
+  gameManager.addChatMessage(session.gameId, chatPayload);
 
   // Record chat for replay
   gameManager.getRecorder(session.gameId)?.recordChat(chatPayload);
@@ -498,7 +519,10 @@ export function handleRejoinGame(
   gameManager.setPlayerConnected(session.gameId, session.playerId, true);
   sessions.send(session.playerId, {
     action: 'rejoinedGame',
-    payload: { currentGame },
+    payload: {
+      currentGame,
+      chatHistory: gameManager.getChatHistory(session.gameId),
+    },
   });
   logger.info({ playerId: session.playerId, gameId: session.gameId }, 'Player rejoined game');
 }
